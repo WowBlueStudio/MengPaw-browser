@@ -11,7 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -78,7 +78,7 @@ fun BrowserTabDialog(
                             // Menu
                             Box {
                                 IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) {
-                                    Icon(Icons.Default.MoreHoriz, "菜单", modifier = Modifier.size(16.dp), tint = ThemeColors.textSecondary)
+                                    Icon(Icons.Default.MoreVert, "菜单", modifier = Modifier.size(16.dp), tint = ThemeColors.textSecondary)
                                 }
                                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                     DropdownMenuItem(text = { Text("推送给智能体") }, onClick = {

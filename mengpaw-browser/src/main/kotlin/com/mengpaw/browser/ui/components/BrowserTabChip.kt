@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -46,7 +46,7 @@ fun TabChip(
                 color = if (selected) ThemeColors.textPrimary else ThemeColors.textSecondary)
             if (onMenu != null) {
                 IconButton(onClick = onMenu, modifier = Modifier.size(16.dp)) {
-                    Icon(Icons.Default.MoreHoriz, "菜单", modifier = Modifier.size(14.dp), tint = ThemeColors.textSecondary)
+                    Icon(Icons.Default.MoreVert, "菜单", modifier = Modifier.size(14.dp), tint = ThemeColors.textSecondary)
                 }
             }
             Spacer(Modifier.width(2.dp))

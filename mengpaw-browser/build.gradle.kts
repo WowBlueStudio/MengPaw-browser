@@ -47,7 +47,9 @@ android {
             // Debug: no minification, fast builds
         }
         release {
-            isMinifyEnabled = true
+            // 混淆关闭: 浏览器源码公开 (开源仓库), R8 不提供实质保护, 且本机 R8 内存不足易卡死。
+            // 如需混淆, 打开 isMinifyEnabled 并确保构建机有足够内存。
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -122,7 +124,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.activity:activity-compose:1.9.3")

@@ -6,8 +6,8 @@ package com.mengpaw.browser.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -60,7 +60,7 @@ fun BrowserAgentSettingsDialog(
                 // Section: Quick Click (experimental)
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.AutoAwesome, null, Modifier.size(16.dp), tint = ThemeColors.brand)
+                        Icon(Icons.Outlined.Star, null, Modifier.size(16.dp), tint = ThemeColors.brand)
                         Spacer(Modifier.width(4.dp))
                         Text("实验性功能", style = MaterialTheme.typography.labelLarge, color = ThemeColors.brand, fontWeight = FontWeight.Bold)
                     }
@@ -122,7 +122,7 @@ fun BrowserAgentSettingsDialog(
                 // Quick Click workflow tips
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Outlined.MenuBook, null, Modifier.size(16.dp), tint = ThemeColors.textSecondary)
+                        Icon(Icons.Outlined.Info, null, Modifier.size(16.dp), tint = ThemeColors.textSecondary)
                         Spacer(Modifier.width(4.dp))
                         Text("使用流程", fontWeight = FontWeight.Medium)
                     }

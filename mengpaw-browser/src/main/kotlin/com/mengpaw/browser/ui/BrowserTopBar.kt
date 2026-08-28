@@ -332,7 +332,7 @@ fun BrowserTopBar(
                             )
                             DropdownMenuItem(
                                 text = { Text("提炼网页要点") },
-                                leadingIcon = { Icon(Icons.Default.AutoAwesome, null) },
+                                leadingIcon = { Icon(Icons.Default.Star, null) },
                                 onClick = {
                                     onExtractToAgent(activeTab.url, activeTab.title)
                                     menuExpanded = false
@@ -346,7 +346,7 @@ fun BrowserTopBar(
                         )
                         DropdownMenuItem(
                             text = { Text("智能体协同") },
-                            leadingIcon = { Icon(Icons.Default.SmartToy, null) },
+                            leadingIcon = { Icon(Icons.Default.Face, null) },
                             onClick = { onShowAgentSettings(); menuExpanded = false }
                         )
                         HorizontalDivider()
