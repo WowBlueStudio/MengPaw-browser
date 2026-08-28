@@ -1,0 +1,132 @@
+// SPDX-FileCopyrightText: 2026 深圳哇蓝文化科技有限公司 (ShenZhen wowblue culture and technology CO.,LTD.)
+// SPDX-License-Identifier: AGPL-3.0-or-later OR LicenseRef-Commercial
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+// 独立版本节奏 (不跟随主项目 mengpaw.version) — 单点数据源, 版本迭代只改这里
+// v0.8.0: 半自动武器 (page.* 命令面 + am 桥 + 超长页分段坐标 + 公共目录截图)
+// v0.8.1: MCP 开放模式 (第三方 Agent 经 9880 免认证控制, Playwright 式)
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.8.1").get()
+
+// 共享地基版本 — 主仓库 kernel tag, JitPack 构件 (com.github.WowBlueStudio.MengPaw:<module>:<tag>)
+val foundationGroup: String = "com.github.WowBlueStudio.MengPaw"
+val foundationVersion: String = providers.gradleProperty("mengpaw.foundation.version").orElse("0.44.0").get()
+
+android {
+    namespace = "com.mengpaw.browser"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.mengpaw.browser"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 14
+        versionName = browserVersion
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+
+    buildTypes {
+        debug {
+            // Debug: no minification, fast builds
+        }
+        release {
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+                "../proguard-common.pro"
+            )
+            isShrinkResources = false
+        }
+    }
+
+    // Per-variant output naming. Must be inside buildTypes to avoid Kotlin DSL
+    // type-inference issues with Boolean-returning lambdas in AGP 8.x.
+    buildTypes {
+        debug {
+            applicationVariants.all {
+                if (buildType.name == "debug") {
+                    outputs.all {
+                        (this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl)?.let {
+                            it.outputFileName = "mengpaw-browser-v${browserVersion}-debug.apk"
+                        }
+                    }
+                } else {
+                    outputs.all {
+                        (this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl)?.let {
+                            it.outputFileName = "mengpaw-browser-v${browserVersion}-release.apk"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val keystoreFile = project.findProperty("keystore.file") as? String ?: "mengpaw-release.jks"
+    val keystoreStorePass = project.findProperty("keystore.storepass") as? String ?: ""
+    val keystoreKeyPass = project.findProperty("keystore.keypass") as? String ?: ""
+    val releaseKeystoreFile = rootProject.file(keystoreFile)
+    if (releaseKeystoreFile.exists()) {
+        signingConfigs {
+            create("release") {
+                storeFile = releaseKeystoreFile
+                storePassword = keystoreStorePass
+                keyAlias = "mengpaw"
+                keyPassword = keystoreKeyPass
+            }
+        }
+        buildTypes {
+            getByName("release") {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+    }
+}
+
+dependencies {
+    // 共享地基 — JitPack 构件 (主仓库发布), 替代原 project(":mengpaw-kernel") 等
+    implementation("$foundationGroup:mengpaw-kernel:$foundationVersion")
+    implementation("$foundationGroup:mengpaw-core:$foundationVersion")
+    implementation("$foundationGroup:mengpaw-design-system:$foundationVersion")
+
+    // Kotlin
+    // CommonMark md→HTML 渲染 (与 design-system 同版本; design-system 以 implementation 声明不传递)
+    implementation("org.commonmark:commonmark:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-tables:0.24.0")
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.24.0")
+
+    // Kotlin
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:2.0.21"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib")
+
+    // Compose
+    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.runtime:runtime")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    testImplementation("junit:junit:4.13.2")
+}

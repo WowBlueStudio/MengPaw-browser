@@ -1,0 +1,20 @@
+# Gradle
+build/
+.gradle/
+.kotlin/
+*.apk
+*.aab
+
+# Local
+local.properties
+mengpaw-release.jks
+*.jks
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
