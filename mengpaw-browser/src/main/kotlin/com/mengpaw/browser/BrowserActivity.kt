@@ -22,43 +22,18 @@ import com.mengpaw.design.theme.ArcoTheme
 /**
  * 浏览器独立 APK 入口。
  *
- * v0.32.x (400 行文件拆分批次 2): MCP 工具执行拆至 [BrowserMcpTools.kt],
- * 主 UI (BrowserApp) 拆至 [BrowserApp.kt] + 对话框层 [BrowserAppDialogs.kt]。
+ * v0.32.x (400 行文件拆分批次 2): 主 UI (BrowserApp) 拆至 [BrowserApp.kt] +
+ * 对话框层 [BrowserAppDialogs.kt]。9880 桥退役 (决策 #7) 后 McpHttpServer/BrowserMcpTools 已删除,
+ * Agent 控制统一走 am 桥 (RunCommandService)。
  */
 class BrowserActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DataPathsInitializer.initialize(this)
         KernelLog.setLogger(AndroidLogger())
-        // 设备内 MCP 桥: 启动本地 HTTP server (127.0.0.1:9880), Shell 进程经它调 MCP 工具
-        // (废弃旧反射静态字段绑定 — 插件类在 Shell 进程, 浏览器进程赋值互不可见)
-        com.mengpaw.browser.mcp.McpHttpServer.start { tool, args ->
-            runMcpTool(
-                builtinPlugin = builtinBrowserPlugin,
-                webViewProvider = { webViewMapRef.values.firstOrNull() },
-                onMainThread = { block -> runOnUiThread(block) },
-                toolName = tool, args = args
-            )
-        }
-        // P0 fix: 桥认证 — 生成 32 字节随机 token, 经签名级 ContentProvider 写入 Shell 进程。
-        // 第三方 app 无签名权限无法读写; 无 token 时 McpHttpServer 对 /mcp 一律 401 (fail-closed)。
-        try {
-            val bytes = ByteArray(32)
-            java.security.SecureRandom().nextBytes(bytes)
-            val token = bytes.joinToString("") { String.format(java.util.Locale.ROOT, "%02x", it) } // Locale.ROOT: 阿拉伯语设备 %02x 畸形 (P2)
-            com.mengpaw.browser.mcp.McpHttpServer.setAuthToken(token)
-            val values = android.content.ContentValues().apply { put("token", token) }
-            contentResolver.update(
-                android.net.Uri.parse("content://com.mengpaw.bridge.token"),
-                values, null, null
-            )
-        } catch (e: Exception) {
-            android.util.Log.w("MengPaw", "MCP bridge token 注入失败 (Shell 未运行?): ${e.message}")
-        }
-        // 开放模式 (Playwright 式): 用户显式开启后 /mcp 免 token, 本机任意进程可控制;
-        // 默认关闭, 保持签名级安全模型 (开关见设置 → 开放 MCP 控制)。
+        // 9880 HTTP 桥已退役 (半自动武器决策 #7): Agent 控制统一走 am 桥 (RunCommandService,
+        // signature 权限), 无 token/开放模式/HTTP server。
         val prefs = BrowserPrefs(this)
-        com.mengpaw.browser.mcp.McpHttpServer.setOpenMode(prefs.mcpOpenMode)
         // Bind Quick Click toggle and screenshot settings to BuiltinBrowserPlugin
         com.mengpaw.browser.plugin.BuiltinBrowserPlugin.quickClickEnabled = { prefs.quickClickEnabled }
         com.mengpaw.browser.plugin.BuiltinBrowserPlugin.screenshotMaxHeight = { prefs.screenshotMaxHeight }
@@ -210,7 +185,7 @@ class BrowserActivity : ComponentActivity() {
     internal var onOpenMd: ((String, String, String) -> Unit)? = null
 
     // ── P1 fix: BuiltinBrowserPlugin 接线 (此前零实例化, browser.* 命令不可达);
-    //    v0.8.0 半自动武器: page.* + browser.* 45 条, 经 9880 桥 + am 桥暴露 ──
+    //    v0.8.0 半自动武器: page.* + browser.* 43 条, 经 am 桥暴露 (9880 桥已退役) ──
 
     /** BrowserApp (Compose) 暴露的标签页状态桥 — 命令经它操作真实 UI 状态。 */
     interface BrowserStateBridge {
@@ -268,7 +243,7 @@ class BrowserActivity : ComponentActivity() {
         }
     }
 
-    /** 内置浏览器命令插件 — 经 9880 桥暴露给 Agent (browser.mcp.invoke <命令>)。 */
+    /** 内置浏览器命令插件 — 经 am 桥 (RunCommandService) 暴露给 Agent。 */
     private val builtinBrowserPlugin: com.mengpaw.browser.plugin.BuiltinBrowserPlugin by lazy {
         com.mengpaw.browser.plugin.BuiltinBrowserPlugin(
             webViewProvider = { browserState?.activeWebView() },
@@ -298,8 +273,6 @@ class BrowserActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 设备内 MCP 桥停止
-        com.mengpaw.browser.mcp.McpHttpServer.stop()
         // CRITICAL: Destroy all WebViews to free native renderer memory
         webViewMapRef.values.forEach { destroyWebViewSafe(it) }
         webViewMapRef.clear()
