@@ -1,7 +1,7 @@
 # MengPaw_Browser_skills.md — 浏览器命令手册 (Shell Agent 专用)
 
 > 适用对象: 经 am 桥控制 MengPaw.Browser APK 的 MengPaw Shell Agent(同签名)。
-> 版本: v0.8.1 · 2026-08-29 · 本文件覆盖浏览器全部命令面与操作技巧。
+> 版本: v0.9.0 · 2026-08-29 · 本文件覆盖浏览器全部命令面与操作技巧。
 > 9880 HTTP 桥与开放模式已退役(决策 #7), 第三方接入不再支持, 仅同签名 Shell 可调。
 > 开发者视角的架构细节见同目录 `MengPaw.Browser 开发文档.md`。
 
