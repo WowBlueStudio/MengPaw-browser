@@ -1,6 +1,6 @@
 # MengPaw Browser (独立浏览器)
 
-MengPaw Agent 的独立浏览器应用——「半自动武器」+ MCP 开放模式。
+MengPaw Agent 的独立浏览器应用——「半自动武器」+ am 桥控制(仅同签名 Shell)。
 
 本仓库是 **MengPaw 按 APK 产物拆分后的浏览器独立仓库**,仅包含浏览器模块源码。
 共享地基(微内核 / Android 适配 / 设计系统)经 **JitPack 依赖** 主仓库发布构件:

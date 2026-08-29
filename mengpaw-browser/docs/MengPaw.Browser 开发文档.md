@@ -2,7 +2,7 @@
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
 > 文档版本: v0.8.1 · 2026-08-29 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
-> 本文档分两部分: **第一部分**引导 Agent 通过 MCP 连接浏览器并开始操作;
+> 本文档分两部分: **第一部分**引导 Shell Agent 经 am 桥控制浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
 > 半自动循环/表单/抓取/排障/Playwright 对照) — 下载链接: 见本文件发布说明附件。
@@ -15,8 +15,8 @@
 
 MengPaw.Browser(包名 `com.mengpaw.browser`)是一款**可被 AI Agent 编程控制的
 Android 浏览器 APK**: 基于 WebView 的完整浏览器(人可以直接用), 同时内置
-Playwright 语义命令面(`page.*` 22 条 + `browser.*` 23 条), 经
-`127.0.0.1:9880` HTTP 桥(MCP 风格)对外暴露。
+Playwright 语义命令面(`page.*` 22 条 + `browser.*` 21 条), 经 Termux 式
+**am 桥**(`RunCommandService`, signature 权限)对外暴露给同签名 Shell。
 
 一句话概括: **给人用的浏览器, 也是给 Agent 用的浏览器**——Agent 可以像操作
 Playwright 一样, 驱动它打开网页、全页截图、坐标点击、填表、提取内容、管理标签页。
@@ -27,72 +27,60 @@ Playwright 一样, 驱动它打开网页、全页截图、坐标点击、填表�
   页面; 真实浏览器自带会话、Cookie 与 JS 执行环境。
 - **Playwright 语义, 零学习成本**: 命令名与参数对齐 LLM 训练语料中最熟悉的
   Playwright API, Agent 无需额外学习自定义命令。
-- **独立 APK, 不绑宿主**: 任何 AI Agent 框架(不限于 MengPaw)都可接入, 无需
-  为每个框架开发专门插件。
+- **独立 APK, 与 Shell 松耦合**: 浏览器独立版本节奏、独立仓库; Shell 经 am 桥
+  控制, 无需为浏览器写专门插件。
 - **半自动协作**: `page.load` 一次完成"导航 + 全页分段截图 + 坐标系统", Agent
   看图即可坐标点击, 往返少、上下文省。
-- **安全可控**: 默认签名级认证(仅同签名宿主可调), 第三方接入需用户显式开启
-  开放模式(Playwright 式, 仅本机回环)。
+- **安全可控**: am 桥 signature 权限(仅同签名 Shell 可调)+ 命令面白名单 +
+  输出路径限制; 9880 桥与开放模式已退役(决策 #7), 第三方接入不再支持。
 
 ### 怎么读本文档
 
-- **目标: 让 Agent 通过 MCP 连接浏览器并开始操作** → 读**第一部分 快速开始**
+- **目标: 让 Shell Agent 经 am 桥控制浏览器并开始操作** → 读**第一部分 快速开始**
   (§1-4); 连接成功后的完整操作能力由配套文档 `MengPaw_Browser_skills.md` 传达。
 - **目标: 从源码理解/修改浏览器、做二次开发、接入自己的框架** → 直接跳转
   **第二部分 从源码开始**(§5-12), 目录结构与实现细节都在那里。
 
 ---
 
-## 第一部分 快速开始 — Agent 通过 MCP 连接浏览器
+## 第一部分 快速开始 — Shell Agent 经 am 桥控制浏览器
 
-### 1. 连接前提
+### 1. 控制前提
 
-- 设备已安装 MengPaw.Browser APK(包名 `com.mengpaw.browser`)
-- **第三方 Agent(非同签名)**: 需用户在浏览器设置中开启「开放 MCP 控制」——默认
-  安全模式下 9880 桥要求 Bearer token, 而 token 仅同签名 Shell 可获取, 第三方拿不到
-  (详见 §3 认证)
-- Agent 具备三项能力: `am` 命令执行(唤醒浏览器) / HTTP 请求(调用 9880) /
-  读取公共目录文件(查看截图)
+- 设备已安装 MengPaw.Browser APK(包名 `com.mengpaw.browser`)与 **MengPaw Shell(同签名)**
+- 控制通道为 **Termux 式 am 桥**(`RunCommandService`), 受 signature 权限
+  `com.mengpaw.permission.RUN_BROWSER_COMMAND` 保护——**仅同签名 Shell 可调**,
+  第三方 App 调用会被系统拒绝(9880 HTTP 桥与开放模式已退役, 第三方接入不再支持)
+- Agent 具备两项能力: `am` 命令执行(唤起浏览器/调命令) / 读取公共目录文件
+  (查看截图与输出)
 
-### 2. 三步连接
+### 2. 两步调用
 
 ```bash
-# ① 唤起浏览器(未运行或被杀时桥不可达, 必须先唤起)
+# ① 唤起浏览器(未运行或被杀时 am 桥不可达, 必须先唤起)
 am start -a com.mengpaw.action.OPEN_URL --es url "https://example.com"
 
-# ② 探测桥状态
-curl http://127.0.0.1:9880/health
-# → {"ok":true,"status":"online","tools":6,"openMode":true}
-
-# ③ 调用命令(开放模式下免认证)
-curl -X POST http://127.0.0.1:9880/mcp \
-  -d '{"tool":"page.content","args":{"head":"20"}}'
+# ② 执行浏览器命令: 输出落盘公共目录, Shell 经 agent.read / grep / head / tail 读回
+am startservice -n com.mengpaw.browser/.service.RunCommandService \
+  --es com.mengpaw.browser.RUN_COMMAND_ARGUMENTS "-c,page.content --head 20" \
+  --es com.mengpaw.browser.RUN_COMMAND_OUTPUT /storage/emulated/0/MengPaw/out.txt
 ```
 
-设备外(PC)接入: `adb forward tcp:9880 tcp:9880` 后连本机 9880。
-浏览器进程被杀后桥自动停止, 重新唤起即恢复。
+浏览器进程被杀后 am 桥不可达, 重新唤起即恢复; 未运行时报
+「浏览器未就绪(请先打开 MP 浏览器再调用)」。
 
-### 3. 认证: 安全模式与开放模式
+### 3. 安全模型
 
-| 模式 | /mcp 要求 | 适用 |
-|------|-----------|------|
-| 安全模式(默认) | `Authorization: Bearer <token>`, token 仅同签名 Shell 可拿 | MengPaw Shell |
-| 开放模式 | 免认证(用户设置显式开启, 仅回环 127.0.0.1) | 第三方 Agent |
-
-**401 处置流程**(Agent 首次调用大概率遇到):
-
-```text
-1. 收到 {"ok":false,"error":"unauthorized: ..."} 或 HTTP 401
-2. 判定为安全模式: GET /health 若 openMode:false
-3. 引导用户: 浏览器设置 → 开放 MCP 控制 → 开启
-4. 重新 GET /health 确认 openMode:true, 再继续调用
-```
-
-开放模式仅监听回环地址, 不暴露局域网; 请仅在可信环境开启, 用完可关回。
+| 层 | 措施 |
+|----|------|
+| 调用方认证 | am 桥 signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名 Shell 可调 |
+| 命令面 | am 桥 payload 白名单 `page.*`/`browser.*`, 拒绝任意 shell 命令 |
+| 输出路径 | 输出文件限制在公共目录 `MengPaw/` 下, 禁止系统路径 |
+| 存储 | `MANAGE_EXTERNAL_STORAGE`, 首启弹窗; 拒绝后每次 `page.load` 提示重授 |
 
 ### 4. 连接成功后的操作
 
-连接建立后, 浏览器的全部操作能力(45 条命令全表 / 半自动循环 / 表单自动化 /
+连接建立后, 浏览器的全部操作能力(43 条命令全表 / 半自动循环 / 表单自动化 /
 网页抓取 / 排障速查 / Playwright 对照)由配套文档
 **MengPaw_Browser_skills.md** 传达, 本开发文档不再重复。
 
@@ -125,15 +113,13 @@ curl -X POST http://127.0.0.1:9880/mcp \
 
 ```
 com.mengpaw.browser
-├── BrowserActivity.kt         # APK 入口: 启动 9880 桥/token/开放模式/权限引导
+├── BrowserActivity.kt         # APK 入口: 状态桥/权限引导/am 桥共享实例
 ├── BrowserApp.kt              # Compose 主 UI (标签页/地址栏/对话框状态)
 ├── BrowserAppDialogs.kt       # 对话框渲染层 (状态提升, 参数显式传入)
 ├── BrowserContentArea.kt      # 内容区 (NewTabPage / 多标签 WebView)
 ├── BrowserDarkMode.kt         # 暗色模式注入
-├── BrowserMcpTools.kt         # 9880 桥工具执行 (双路径分流)
 ├── bridge/                    # BrowserBridge / BrowserScripts / FullPageScreenshotter
 ├── data/                      # BrowserPrefs / BrowserTypes / HistoryStore
-├── mcp/                       # McpHttpServer (9880 桥) / McpAuthPolicy (认证策略)
 ├── plugin/                    # BuiltinBrowserPlugin + 4 命令组 + BrowserCommandContext
 ├── service/                   # RunCommandService (am 桥) / GoogleTranslate
 ├── ui/                        # TopBar / 设置 / 书签 / 历史 / 标签页等 Compose UI
@@ -143,22 +129,21 @@ com.mengpaw.browser
 
 关键生命周期:
 
-- `BrowserActivity.onCreate`: 启动 `McpHttpServer`(9880)→ 生成 32 字节 token 并注入
-  Shell(经签名级 ContentProvider)→ 读取 `BrowserPrefs.mcpOpenMode` 设置开放模式 →
-  绑定 Quick Click/截图设置到 `BuiltinBrowserPlugin` → `BuiltinBrowserPlugin.shared`
-  供 am 桥复用 → 首启申请「所有文件访问」。
-- `BrowserActivity.onDestroy`: 停止 9880 桥, token 失效。
+- `BrowserActivity.onCreate`: 初始化 DataPaths/Logger → 绑定 Quick Click/截图设置到
+  `BuiltinBrowserPlugin` → `BuiltinBrowserPlugin.shared` 供 am 桥复用 →
+  首启申请「所有文件访问」。
+- `BrowserActivity.onDestroy`: 销毁全部 WebView、清空状态桥。
+- 9880 HTTP 桥(`McpHttpServer`/`McpAuthPolicy`/`BrowserMcpTools`)已随决策 #7 退役删除。
 
 ### 7. 命令面实现
 
 注册源头: `BuiltinBrowserPlugin.commands` =
 `BrowserTabCommands` + `BrowserPageCommands` + `BrowserQueryCommands` +
-`BrowserPlaywrightCommands`。共 45 条(page.* 22 + browser.* 23)。
+`BrowserPlaywrightCommands`。共 43 条(page.* 22 + browser.* 21)。
 
 - `BrowserPlaywrightCommands`: `page.*` 22 条 — 参数解析支持位置参数 +
   `--flag` 值(`wait/max-height/grep/head/tail/timeout`)+ 布尔 flag(`-i` 等)
-- `BrowserTabCommands`: `tabs` / `tab` / `tab.open` / `tab.close` / `tab.all` /
-  `batch` / `q`
+- `BrowserTabCommands`: `tabs` / `tab` / `tab.open` / `tab.close` / `tab.all`
 - `BrowserPageCommands`: `inject` / `diff` / `preload` / `wait` / `wait.nav` /
   `cookies` / `cookies.set` / `cookies.clear` / `dialog.accept` / `dialog.dismiss`
 - `BrowserQueryCommands`: `visible` / `enabled` / `storage` / `viewport` /
@@ -167,21 +152,7 @@ com.mengpaw.browser
 命令实现统一接收 `(List<String>, ExecutionContext) -> ExecutionResult`, 经
 `BrowserCommandContext` 访问 WebView 桥(`BrowserBridge`)/标签页状态/截图器。
 
-### 8. 调用通道实现
-
-#### 8.1 9880 HTTP 桥(`McpHttpServer`)
-
-监听 `127.0.0.1:9880`(Ports.BROWSER_MCP), 生命周期随 BrowserActivity。
-
-- `GET /health`: 免认证 → `{"ok":true,"status":"online","tools":6,"openMode":bool}`
-- `POST /mcp`: body `{"tool":"<命令>","args":{...}}`; 安全模式需
-  `Authorization: Bearer <token>`, 开放模式免认证
-- 工具名 = 45 条命令键 + 原生 6 工具名; 参数 map 按位置键序展开
-  (`url/selector/text/x/y/script/value/name/width/height/...` + `--flag` 映射)
-- 工具执行双路径分流(`BrowserMcpTools`): 内置命令后台线程 `runBlocking`;
-  原生 6 工具主线程(截图 View.draw 必须主线程)
-
-#### 8.2 am 桥(`RunCommandService`)
+### 8. 调用通道实现 — am 桥(`RunCommandService`)
 
 ```text
 action:  com.mengpaw.browser.RUN_COMMAND
@@ -192,22 +163,25 @@ extra:   com.mengpaw.browser.RUN_COMMAND_BACKGROUND = true
 白名单:  仅 page.* / browser.* 前缀
 ```
 
-`RunCommandService` 引号感知分词, 输出落盘后由调用方读取。浏览器未运行时报
-「浏览器未就绪(请先打开 MP 浏览器再调用)」。
+`RunCommandService` 引号感知分词, 经 `BuiltinBrowserPlugin.shared` 执行命令,
+输出落盘后由调用方读取。浏览器未运行时报「浏览器未就绪(请先打开 MP 浏览器再调用)」。
+
+> 9880 HTTP 桥(`McpHttpServer`)与 MCP 开放模式已按决策 #7 退役删除:
+> 浏览器侧不再有 HTTP 桥/token/`GET /health`/`POST /mcp`;
+> kernel 侧文档表/提示词节与 mengpaw-connectors 的 browser-mcp-plugin 清理
+> 留待主仓库执行(见 browser-autopilot-plan.md §九)。
 
 ### 9. 安全模型
 
 | 层 | 措施 |
 |---|------|
 | am 桥 | signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名 Shell 可调 |
-| 9880 桥 | Bearer token (32 字节 SecureRandom), 签名级 ContentProvider 下发, 401 fail-closed |
-| 开放模式 | 用户设置显式开启 → `/mcp` 免认证 (Playwright 式, 仅回环 127.0.0.1) |
 | 命令面 | am 桥 payload 白名单 `page.*`/`browser.*`, 拒绝任意 shell |
 | 输出路径 | am 桥输出限制在公共目录 `MengPaw/` 下 |
 | 存储 | `MANAGE_EXTERNAL_STORAGE`, 首启弹窗; 拒绝后每次 `page.load` 提示重授 |
 
-认证策略为纯函数 `McpAuthPolicy.isAuthorized(openMode, expectedToken, providedHeader)`
-(安全模式 fail-closed / 开放模式放行), 单测锁定。
+9880 桥与开放模式已退役(决策 #7)——不再有 token/免认证通道, 攻击面收敛为
+单一 am 桥 + signature 权限。
 
 ### 10. 存储与截图
 
@@ -221,7 +195,6 @@ extra:   com.mengpaw.browser.RUN_COMMAND_BACKGROUND = true
 `src/test/kotlin/com/mengpaw/browser/`:
 
 - `util/SmartNavigateTest.kt` / `util/AdBlockerTest.kt`
-- `mcp/McpAuthPolicyTest.kt`(认证策略 7 用例)
 
 改命令面/桥/安全逻辑必须补对应单测; 核心链路改动跑
 `:mengpaw-browser:testDebugUnitTest` 全绿。
@@ -230,6 +203,7 @@ extra:   com.mengpaw.browser.RUN_COMMAND_BACKGROUND = true
 
 - 命令核对以注册处为准(`BuiltinBrowserPlugin.commands` 聚合, 不凭 grep 印象)
 - 新增命令四源同步: 命令注册 / `MengPaw_Browser_skills.md` / 开发指南 / 提示词
-- 端口单一事实源: `Ports.kt`(9876 内核保留 / 9880 浏览器 MCP / 9881 MCP 网关)
+- 端口单一事实源: `Ports.kt`(9876 内核保留 / 9881 MCP 网关; 9880 浏览器 MCP 已退役,
+  常量随主仓库 kernel 清理)
 - 新 `.kt` 必须带 SPDX 双许可头; 单文件 ≤400 行; 禁 `!!`
 - 双许可: `AGPL-3.0-or-later OR LicenseRef-Commercial`

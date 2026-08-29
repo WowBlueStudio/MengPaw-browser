@@ -1,7 +1,7 @@
 # MP 浏览器「半自动武器」升级方案（Playwright 语义 + Termux 式调用）
 
 > 状态：方案已实施（v0.8.0 + v0.8.1 已发布），§二 设计决策为权威依据，实现细节见开发文档/技能手册
-> 待办：真机自测（page.load 半自动截图 / page.click 分段坐标 / am 桥端到端 / 存储权限弹窗）→ 9880 桥退役（决策 #7, 桥当前仍活跃未退役）
+> 待办：kernel/connectors 侧 9880 残留清理（决策 #7 收尾，浏览器侧已退役 2026-08-29）；真机自测已通过（2026-08）
 > 关联：mengpaw-browser（浏览器进程）、mengpaw-shell（Shell 进程）、mengpaw-kernel（CommandMonitor/Linux 命令通道）、mengpaw-connectors（退役 browser-mcp-plugin）
 
 ## 一、背景与痛点
@@ -24,7 +24,7 @@
 | 4 | **新增 `page.*` 语义组**，与 `browser.*` 并存过渡；**去重本次会话执行**（2026-08-11 拍板）——`page.*` 能完成的指令，LLM 不会倾向使用 `browser.*`，冗余无意义，去重阶段删除。 |
 | 5 | **超长页截断分多段发送，坐标按段拆分**（2026-08-11 拍板）：全页截图超限时不再单张硬拼，按段截取、每段独立坐标系统，`page.click` 带段号。 |
 | 6 | **存储权限拒绝降级 = 每次 `page.load` 提示重授**（2026-08-11 拍板，选项 c）：拒绝后不落盘，命令结果明确提示重新授权。 |
-| 7 | **9880 桥 + browser-mcp-plugin 退役**（2026-08-11 确认）：Agent 侧功能完全可由 am 桥覆盖（审计证据——Shell App UI 不依赖 9880，唯一消费方是外置 BrowserMcpPlugin）。Phase 2 端到端验证后执行退役。 |
+| 7 | **9880 桥 + browser-mcp-plugin 退役**（2026-08-11 确认）：Agent 侧功能完全可由 am 桥覆盖（审计证据——Shell App UI 不依赖 9880，唯一消费方是外置 BrowserMcpPlugin）。Phase 2 端到端验证后执行退役。**浏览器侧已执行（2026-08-29），kernel/connectors 侧清理待办。** |
 
 ## 三、目标架构（三层）
 
@@ -37,11 +37,9 @@ Shell 进程                                   浏览器进程（mengpaw-browser
 │ 输出落盘 → agent.read     │ ◄───────────── │ 全页截图 / 文本 / 坐标     │
 │ Linux grep/head/tail 管道 │   文件回传      │ 落盘 + 分段坐标            │
 └──────────────────────────┘                └──────────────────────────┘
-        │ 9880 HTTP 桥（过渡保留，Phase 2 后退役）         ▲
-        └───────────────────────────────────────────────┘
 ```
 
-- **调用通道**：Termux 式 `am startservice` 桥（shell 子进程可调）+ 9880 HTTP 桥（过渡期保留，Phase 2 验证后退役，决策 #7）。
+- **调用通道**：Termux 式 `am startservice` 桥（shell 子进程可调）——唯一通道（9880 HTTP 桥已退役，决策 #7）。
 - **执行引擎**：浏览器内置命令集（现有 `browser.*` + 新增 `page.*`），输出统一落盘。
 - **命令面**：Playwright 语义，LLM 零学习成本。
 
@@ -119,13 +117,13 @@ Agent 循环：**看图（段图）→ `page.click <seg> x y` → `page.scroll_b
 - `am` 命令本身在 Linux 通道放行（非提权/非高危），浏览器形态由 CommandMonitor 兜住；
 - 与 Linux 命令通道关系：浏览器操作融入 shell 命令流，输出落盘后可直接接管道（主线程已实现的 `\|` 能力）。
 
-**9880 HTTP 桥**：过渡期保留；Phase 2 端到端验证后退役（决策 #7）。退役范围：浏览器侧 `McpHttpServer` + `BridgeTokenProvider` + 外置 `browser-mcp-plugin`（mengpaw-connectors）+ kernel 文档表/提示词节/PluginManager 命名空间特例，同步清理。
+**9880 HTTP 桥**：**已退役（2026-08-29，决策 #7 浏览器侧执行）**——`McpHttpServer`/`McpAuthPolicy`/`BrowserMcpTools`/token 注入/开放模式开关与设置 UI/`mcpOpenMode`/`MCP_BRIDGE` 权限已全部删除。剩余清理（外置 `browser-mcp-plugin`（mengpaw-connectors）+ kernel 文档表/提示词节/PluginManager 命名空间特例）留待主仓库执行。
 
 ## 七、安全设计
 
 | 层 | 措施 |
 |---|------|
-| 调用方认证 | `RunCommandService` signature 级权限；9880 桥 token（签名级 ContentProvider）不变 |
+| 调用方认证 | `RunCommandService` signature 级权限（唯一通道；9880 桥已退役） |
 | 命令面 | am 桥 payload 白名单 = `page.*`/`browser.*` 命令集，拒绝任意 shell 命令 |
 | 输出路径 | 输出文件路径由调用方指定，限制在公共输出目录（`MengPaw/` 下），禁止系统路径 |
 | 现有防线 | `CommandMonitor`（BLOCK/CONFIRM + 元字符）+ `SecurityPolicy` 继续兜底 shell 侧 |
@@ -149,8 +147,8 @@ Agent 循环：**看图（段图）→ `page.click <seg> x y` → `page.scroll_b
 | `url`、`title`、`back`、`forward` | `page.url`、`page.title`、`page.back`、`page.forward` | 去重 |
 | `select`、`submit`、`check`、`uncheck` | `page.*` 同名 | 去重 |
 | `key` | `page.key` | 去重 |
-| `batch` | `page.load` 半自动 + 多 Action 并行替代 | 过渡期保留，后去重 |
-| `q` | 快捷方式，LLM 不熟 | 过渡期保留 |
+| `batch` | `page.load` 半自动 + 多 Action 并行替代 | 已去重 |
+| `q` | 快捷方式，LLM 不熟 | 已去重 |
 | `tabs`、`tab`、`tab.open`、`tab.close`、`tab.all` | 标签页管理，`page.*` 不覆盖 | **保留** |
 | `storage`、cookies 系 | `page.*` 不覆盖 | **保留** |
 | `viewport`、`userAgent`、`version` | 设置类 | **保留** |
@@ -159,11 +157,13 @@ Agent 循环：**看图（段图）→ `page.click <seg> x y` → `page.scroll_b
 
 ## 九、剩余待办
 
-Phase 1-4（命令面 / am 桥 / 去重 / 机器验证）已实施并随 v0.8.0、v0.8.1 发布, 剩余:
+Phase 1-4（命令面 / am 桥 / 去重 / 机器验证）已实施并随 v0.8.0、v0.8.1 发布；
+真机自测已通过（2026-08）；batch/q 按决策 #4 去重；9880 桥浏览器侧已退役（2026-08-29）。
+剩余（主仓库侧清理）:
 
-1. **真机自测（用户）**：page.load 半自动截图 / page.click 分段坐标 / am 桥端到端 / 存储权限弹窗。
-2. **9880 桥 + browser-mcp-plugin 退役（决策 #7）**：浏览器侧 `McpHttpServer` + `BridgeTokenProvider` + 外置 `browser-mcp-plugin`（mengpaw-connectors）+ kernel 文档表/提示词节/PluginManager 命名空间特例, 同步清理。退役前需对齐 mengpaw-connectors 发布节奏（browser-mcp-plugin 下版标记废弃/删除）, 避免已装插件残留引用。
+1. **kernel 侧清理**：文档表/提示词节/PluginManager 命名空间特例等 9880/browser-mcp 残留。
+2. **mengpaw-connectors 侧**：`browser-mcp-plugin` 下版标记废弃/删除，对齐发布节奏，避免已装插件残留引用。
 
 ## 十、待定与风险
 
-- **退役衔接**：9880 桥退役前需对齐 mengpaw-connectors 发布节奏（browser-mcp-plugin 下版标记废弃/删除），避免已装插件残留引用（决策 #7）。
+- **退役衔接**：浏览器侧已退役；剩余主仓库 kernel 文档/提示词清理与 mengpaw-connectors 发布节奏对齐（browser-mcp-plugin 下版标记废弃/删除），避免已装插件残留引用（决策 #7）。
