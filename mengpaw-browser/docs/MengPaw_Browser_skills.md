@@ -1,7 +1,7 @@
 # MengPaw_Browser_skills.md — 第三方 AI Agent 控制手册
 
 > 适用对象: 需要控制 MengPaw.Browser APK 的第三方 AI Agent 框架 / 开发者。
-> 版本: v0.8.x · 2026-08-17 · 本文件独立成文, 不依赖 MengPaw Shell。
+> 版本: v0.8.1 · 2026-08-29 · 本文件独立成文, 不依赖 MengPaw Shell。
 > 开发者视角的架构细节见同目录 `MengPaw.Browser 开发文档.md`。
 
 ## 1. 快速上手(3 步)

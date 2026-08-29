@@ -1,7 +1,8 @@
 # MP 浏览器「半自动武器」升级方案（Playwright 语义 + Termux 式调用）
 
-> 状态：方案定稿 + 取舍定案（2026-08-11 两轮用户拍板）｜**已实施 Phase 1-3 + Phase 4 机器验证（2026-08-11 当日）**
-> 待办：真机自测（APK 已构建 mengpaw-browser-v0.8.0-debug.apk）→ 9880 桥退役（决策 #7）
+> 状态：方案定稿 + 取舍定案（2026-08-11 两轮用户拍板）｜已实施 Phase 1-3 + Phase 4 机器验证｜v0.8.0 已发布
+> 更新：v0.8.1（2026-08-29）新增 **MCP 开放模式**（第三方 Agent 经 9880 免认证控制, Playwright 式）——见开发文档 §3
+> 待办：真机自测（APK 已构建 mengpaw-browser-v0.8.0/v0.8.1）→ 9880 桥退役（决策 #7, 桥当前仍活跃未退役）
 > 关联：mengpaw-browser（浏览器进程）、mengpaw-shell（Shell 进程）、mengpaw-kernel（CommandMonitor/Linux 命令通道）、mengpaw-connectors（退役 browser-mcp-plugin）
 
 ## 一、背景与痛点
@@ -169,6 +170,7 @@ Agent 循环：**看图（段图）→ `page.click <seg> x y` → `page.scroll_b
 - ✅ Phase 2：`RunCommandService`（signature 权限 + 命令前缀白名单 + 输出路径公共目录限制）+ `CommandMonitor.detectReinterpret` 浏览器形态（`Reinterpret.BrowserCommand` 白名单放行 / `BlockedBrowserCommand` 拒绝）
 - ✅ Phase 3：browser.* 45→23 条（被 page.* 覆盖的 22 条删除），四源同步（BuiltinBrowserPlugin / PromptEngine 中英提示词节 / 开发指南 §3.4+§5.3 / AgentCliDocTables + 5 个浏览器技能文档），幽灵引用清理
 - ✅ Phase 4（机器部分）：`:mengpaw-kernel:test` 558 用例全绿；`:mengpaw-browser:compileDebugKotlin` + `assembleDebug` 通过（v0.8.0-debug.apk）
+- ✅ v0.8.1（2026-08-29）：**MCP 开放模式**落地 —— `McpHttpServer.setOpenMode` + `BrowserPrefs.mcpOpenMode`（设置 → 开放 MCP 控制），第三方 Agent 免 Bearer token 控制，`/health` 返回 `openMode`；9880 桥继续活跃
 - ⏳ 真机自测（用户）：page.load 半自动截图 / page.click 分段坐标 / am 桥端到端 / 存储权限弹窗 → 通过后执行 9880 桥 + browser-mcp-plugin 退役
 
 ## 十、待定与风险
