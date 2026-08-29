@@ -1,7 +1,7 @@
 # MengPaw.Browser 开发文档
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
-> 文档版本: v0.8.x · 2026-08-17 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
+> 文档版本: v0.8.1 · 2026-08-29 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
 > 本文档分两部分: **第一部分**引导 Agent 通过 MCP 连接浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
@@ -102,14 +102,24 @@ curl -X POST http://127.0.0.1:9880/mcp \
 
 ## 第二部分 从源码开始 — 目录结构与实现
 
-### 5. 模块与构建
+### 5. 仓库与构建
 
-- 模块: `mengpaw-browser`(Gradle Android application)
+本仓库是 **MengPaw 按 APK 产物拆分后的浏览器独立仓库**(rootProject `MengPawBrowser`,
+仅 `:mengpaw-browser` 一个模块)。共享地基(微内核/Android 适配/设计系统)不在本仓库,
+经 **JitPack** 依赖主仓库发布构件 `com.github.WowBlueStudio.MengPaw:<module>:<tag>`。
+
+- 模块: `mengpaw-browser`(Gradle Android application, 独立 APK `com.mengpaw.browser`)
+- 版本: 独立节奏 v0.8.x, **单点** `gradle.properties` 的 `mengpaw.browser.version`
+  (与 `mengpaw-browser/build.gradle.kts` 同步, versionCode 也在该文件)
+- 共享地基版本: `gradle.properties` 的 `mengpaw.foundation.version`(指向主仓库 kernel tag;
+  本地验证可用 `mengpaw.useLocal=true` 走 mavenLocal, 生产走 JitPack)
 - 依赖: `mengpaw-kernel`(CLI 执行/端口表/错误码)、`mengpaw-core`(DataPaths/Logger)、
   `mengpaw-design-system`(ArcoTheme)
-- 构建: `.\gradlew.bat :mengpaw-browser:assembleDebug`
+- 构建: `.\gradlew.bat :mengpaw-browser:assembleDebug` /
+  `.\gradlew.bat :mengpaw-browser:assembleRelease`(release 关闭混淆与资源收缩, 见 build.gradle.kts)
 - 测试: `.\gradlew.bat :mengpaw-browser:testDebugUnitTest`(纯 JVM 单测)
-- 产物: `mengpaw-browser/build/outputs/apk/...`
+- 产物: `mengpaw-browser/build/outputs/apk/{debug,release}/mengpaw-browser-v<ver>-{debug,release}.apk`
+  (版本发布需在 GitHub/Gitee Release 附带 release APK, 由 Shell 主应用 `update` 插件捎带更新)
 
 ### 6. 目录结构(文件地图)
 
