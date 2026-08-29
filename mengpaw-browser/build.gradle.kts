@@ -10,7 +10,8 @@ plugins {
 // 独立版本节奏 (不跟随主项目 mengpaw.version) — 单点数据源, 版本迭代只改这里
 // v0.8.0: 半自动武器 (page.* 命令面 + am 桥 + 超长页分段坐标 + 公共目录截图)
 // v0.8.1: MCP 开放模式 (第三方 Agent 经 9880 免认证控制, Playwright 式)
-val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.8.1").get()
+// v0.9.0: 逻辑重构 — 退役 9880 桥与开放模式, am 桥单通道 (决策 #7); batch/q 去重 (决策 #4)
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.9.0").get()
 
 // 共享地基版本 — 主仓库 kernel tag, JitPack 构件 (com.github.WowBlueStudio.MengPaw:<module>:<tag>)
 val foundationGroup: String = "com.github.WowBlueStudio.MengPaw"
@@ -24,7 +25,7 @@ android {
         applicationId = "com.mengpaw.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 14
+        versionCode = 15
         versionName = browserVersion
     }
 

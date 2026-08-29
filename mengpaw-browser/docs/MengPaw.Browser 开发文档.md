@@ -1,7 +1,7 @@
 # MengPaw.Browser 开发文档
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
-> 文档版本: v0.8.1 · 2026-08-29 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
+> 文档版本: v0.9.0 · 2026-08-29 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
 > 本文档分两部分: **第一部分**引导 Shell Agent 经 am 桥控制浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
@@ -97,7 +97,7 @@ am startservice -n com.mengpaw.browser/.service.RunCommandService \
 经 **JitPack** 依赖主仓库发布构件 `com.github.WowBlueStudio.MengPaw:<module>:<tag>`。
 
 - 模块: `mengpaw-browser`(Gradle Android application, 独立 APK `com.mengpaw.browser`)
-- 版本: 独立节奏 v0.8.x, **单点** `gradle.properties` 的 `mengpaw.browser.version`
+- 版本: 独立节奏 v0.9.x, **单点** `gradle.properties` 的 `mengpaw.browser.version`
   (与 `mengpaw-browser/build.gradle.kts` 同步, versionCode 也在该文件)
 - 共享地基版本: `gradle.properties` 的 `mengpaw.foundation.version`(指向主仓库 kernel tag;
   本地验证可用 `mengpaw.useLocal=true` 走 mavenLocal, 生产走 JitPack)
