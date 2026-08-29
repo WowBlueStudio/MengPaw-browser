@@ -28,22 +28,14 @@ data class BrowserTab(
  *   browser.tab.close <N>       — close tab N
  *   browser.tab.all             — extract content from ALL tabs in one call
  *
- * ## Efficiency commands
- *   browser.nav <url>           — navigate + wait + auto-extract content
- *   browser.batch <cmd1;;cmd2>  — execute multiple commands in one round-trip
- *   browser.q <shorthand>       — quick selector shortcuts
- *
- * ## Basic control
- *   browser.eval / click / type / scroll / content / screenshot
- *   browser.open / back / forward / title / url
- *
  * v0.32.x (400 行文件拆分批次 2): 命令实现按组拆至
- *   [BrowserTabCommands]   (标签页 + 效率)
+ *   [BrowserTabCommands]   (标签页)
  *   [BrowserPageCommands]  (页面控制/等待/Cookie/对话框)
  *   [BrowserQueryCommands] (表单/查询/截图/坐标/视口)
  * v0.8.0 (半自动武器 Phase 1): 新增 [BrowserPlaywrightCommands] — page.* Playwright
  * 语义命令组（22 条）。v0.8.0 Phase 3 去重后 browser.* 保留 23 条（被 page.* 覆盖
- * 的命令已删，决策 #4）— 合计 45 条命令。
+ * 的命令已删，决策 #4）— 合计 45 条命令；batch/q 过渡期保留后亦去重（决策 #4），
+ * browser.* 现为 21 条 — 合计 43 条命令。
  * 本类保留构造参数 + commands 聚合 + companion 开关, 公开 API 不变。
  */
 class BuiltinBrowserPlugin(
