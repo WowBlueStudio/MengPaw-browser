@@ -27,6 +27,7 @@ import com.mengpaw.browser.data.DetectedImage
 import com.mengpaw.browser.data.SearchEngine
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.ui.NewTabPage
+import com.mengpaw.browser.util.PdfUtil
 import com.mengpaw.browser.web.createWebView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,7 +61,8 @@ internal fun ColumnScope.BrowserContentArea(
     onScroll: (Int) -> Unit,
     onNavigate: (String) -> Unit,
     onShowBookmarks: () -> Unit,
-    onShowMarkdown: (String) -> Unit
+    onShowMarkdown: (String) -> Unit,
+    onShowPdf: (String, String) -> Unit
 ) {
     if (isColdStart) {
         NewTabPage(
@@ -107,7 +109,8 @@ internal fun ColumnScope.BrowserContentArea(
                                 ctx, tab, isWide, adBlockEnabled, autoInjectBridge, updateTab,
                                 onImagesDetected,
                                 onScroll = onScroll,
-                                onMarkdownDetected = { url -> fetchMarkdownUrl(url) }
+                                onMarkdownDetected = { url -> fetchMarkdownUrl(url) },
+                                onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) }
                             )
                         },
                         update = { wv -> webViewMap[tab.id] = wv },

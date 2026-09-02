@@ -28,13 +28,16 @@ import com.mengpaw.browser.data.DetectedImage
 import com.mengpaw.browser.data.HistoryStore
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.util.smartNavigate
+import com.mengpaw.browser.util.PdfUtil
 import com.mengpaw.browser.web.createWebView
 import com.mengpaw.browser.ui.BrowserTopBar
 import com.mengpaw.browser.ui.DesktopTabBar
 import com.mengpaw.browser.ui.NewTabPage
 import com.mengpaw.browser.ui.theme.BrowserThemeConfig
 import com.mengpaw.design.theme.ThemeColors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 浏览器主 UI（自 BrowserActivity 拆出 — 400 行文件拆分批次 2）。
@@ -43,7 +46,12 @@ import kotlinx.coroutines.launch
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
 @Composable
-fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
+fun BrowserApp(
+    initialUrl: String? = null,
+    initialMdContent: String? = null,
+    initialPdfSource: String? = null,
+    initialPdfTitle: String = ""
+) {
     val ctx = LocalContext.current
     val prefs = remember { BrowserPrefs(ctx) }
     val isWide = LocalConfiguration.current.screenWidthDp >= 600
@@ -94,6 +102,12 @@ fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
     var showReader by remember { mutableStateOf(false) }
     var showMdViewer by remember { mutableStateOf(false) }
     var mdContent by remember { mutableStateOf("") }
+    // PDF 预览: pending 源在 LaunchedEffect 中取数/写缓存后弹窗 (网络与本地 intent 共用)
+    var pendingPdfSource by remember { mutableStateOf(initialPdfSource) }
+    var pendingPdfTitle by remember { mutableStateOf(initialPdfTitle) }
+    var pdfFile by remember { mutableStateOf<String?>(null) }
+    var pdfTitle by remember { mutableStateOf("") }
+    var showPdfViewer by remember { mutableStateOf(false) }
     var showBookmarks by remember { mutableStateOf(false) }
     var historyEnabled by remember { mutableStateOf(prefs.historyEnabled) }
 
@@ -102,6 +116,21 @@ fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
         if (!initialMdContent.isNullOrBlank()) {
             mdContent = initialMdContent
             showMdViewer = true
+        }
+    }
+    // PDF 预览: 消费 pending 源 → IO 取数写缓存 → 弹窗 (超限/失败 Toast)
+    LaunchedEffect(pendingPdfSource) {
+        val src = pendingPdfSource
+        if (src != null) {
+            val file = withContext(Dispatchers.IO) { PdfUtil.stagePdfForPreview(ctx, src) }
+            if (file != null) {
+                pdfFile = file
+                pdfTitle = pendingPdfTitle
+                showPdfViewer = true
+            } else {
+                Toast.makeText(ctx, "无法打开 PDF (文件过大或读取失败)", Toast.LENGTH_SHORT).show()
+            }
+            pendingPdfSource = null
         }
     }
     val historyStore = remember { HistoryStore(ctx) }
@@ -201,10 +230,15 @@ fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
             mdContent = md
             showMdViewer = true
         }
+        activity?.onOpenPdf = { src, t ->
+            pendingPdfSource = src
+            pendingPdfTitle = t
+        }
         onDispose {
             activity?.onSystemBack = null
             activity?.onOpenUrl = null
             activity?.onOpenMd = null
+            activity?.onOpenPdf = null
         }
     }
 
@@ -327,7 +361,8 @@ fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
                 onScroll = { dy -> scrollOffset = (scrollOffset + dy).coerceIn(0, 500) },
                 onNavigate = { navigate(it) },
                 onShowBookmarks = { showBookmarks = true },
-                onShowMarkdown = { text -> mdContent = text; showMdViewer = true }
+                onShowMarkdown = { text -> mdContent = text; showMdViewer = true },
+                onShowPdf = { src, t -> pendingPdfSource = src; pendingPdfTitle = t }
             )
             // ── 全屏对话框层 (Settings/历史/密码/翻译/图片/查找/阅读/标签页/书签/Markdown) ──
             BrowserAppDialogs(
@@ -394,7 +429,10 @@ fun BrowserApp(initialUrl: String? = null, initialMdContent: String? = null) {
                 showBookmarks = showBookmarks, onDismissBookmarks = { showBookmarks = false },
                 onNavigate = { navigate(it) },
                 showMdViewer = showMdViewer, mdContent = mdContent,
-                onDismissMdViewer = { showMdViewer = false; mdContent = "" }
+                onDismissMdViewer = { showMdViewer = false; mdContent = "" },
+                // PDF viewer
+                showPdfViewer = showPdfViewer, pdfFile = pdfFile, pdfTitle = pdfTitle,
+                onDismissPdfViewer = { showPdfViewer = false; pdfFile = null }
             )
         }
     }

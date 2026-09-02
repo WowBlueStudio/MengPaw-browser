@@ -48,6 +48,10 @@ document.head.appendChild(s)})();
 private fun isMarkdownUrl(url: String): Boolean =
     url.substringBefore('?').substringBefore('#').endsWith(".md", ignoreCase = true)
 
+/** .pdf URL 判定 (与 .md 同构) — 触发 pdf.js 预览而非让 WebView 无法渲染的原始 PDF。 */
+private fun isPdfUrl(url: String): Boolean =
+    url.substringBefore('?').substringBefore('#').endsWith(".pdf", ignoreCase = true)
+
 // ── ComfyUI 判定: 精确 host/端口匹配 (P2 fix — 原子串匹配会误伤 comfygallery/notcomfy 等域名) ──
 
 /**
@@ -84,7 +88,8 @@ fun createWebView(
     updateTab: (Int, (TabState) -> TabState) -> Unit,
     onMediaDetected: (List<DetectedImage>) -> Unit,
     onScroll: (Int) -> Unit = {},
-    onMarkdownDetected: (String) -> Unit = {}
+    onMarkdownDetected: (String) -> Unit = {},
+    onPdfDetected: (String) -> Unit = {}
 ): WebView = WebView(ctx).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
@@ -206,15 +211,23 @@ fun createWebView(
                 onMarkdownDetected(url)
                 return true
             }
+            // .pdf URL → 走 pdf.js 预览 (WebView 原生无法渲染 PDF)
+            if (isPdfUrl(url)) {
+                onPdfDetected(url)
+                return true
+            }
             return false
         }
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
             // 兜底: loadUrl() 等编程式导航不走 shouldOverrideUrlLoading — 这里对所有加载检测
             // (shouldOverrideUrlLoading 拦截时不会触发本回调, 不会重复拉取)
-            if (url != null && isMarkdownUrl(url)) {
-                view?.stopLoading()
-                onMarkdownDetected(url)
-                return
+            if (url != null) {
+                if (isMarkdownUrl(url)) {
+                    view?.stopLoading(); onMarkdownDetected(url); return
+                }
+                if (isPdfUrl(url)) {
+                    view?.stopLoading(); onPdfDetected(url); return
+                }
             }
             url?.let { u -> updateTab(tab.id) { it.copy(url = u, isLoading = true) } }
         }
@@ -260,6 +273,11 @@ fun createWebView(
             // (loadUrl/链接点击/刷新/重定向), 仅主帧一个请求做 O(len) 判断, 子资源零开销
             if (request?.isForMainFrame == true && request.url != null && isMarkdownUrl(request.url.toString())) {
                 onMarkdownDetected(request.url.toString())
+                return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
+            }
+            // .pdf 主帧 → 空响应 + 预览回调
+            if (request?.isForMainFrame == true && request.url != null && isPdfUrl(request.url.toString())) {
+                onPdfDetected(request.url.toString())
                 return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
             }
             if (adBlock && request?.url != null && isAdRequest(request.url.toString())) {

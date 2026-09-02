@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!--
+  MengPaw 浏览器 PDF 预览视图 (pdf.js, Apache-2.0)。
+  由 Kotlin 侧填充 __MENGPAW_PDF_DATA__ 标记 (内联 base64 文档数据) 后经
+  loadUrl(file://cache) 加载。pdf.min.js / worker / cmaps 均走 file:///android_asset 绝对路径。
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PDF 预览</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+  <div class="pdf-stage">
+    <div id="pdfArea" class="pdf-area"></div>
+    <div id="pdfLoading" class="pdf-overlay" hidden>
+      <div class="pdf-spinner"></div>
+      <div class="pdf-loading-text">正在加载 PDF<span id="pdfProgress"></span></div>
+    </div>
+    <div id="pdfError" class="pdf-overlay" hidden>
+      <div class="pdf-error-box">
+        <div class="pdf-error-title">无法打开 PDF</div>
+        <div id="pdfErrorText" class="pdf-error-text"></div>
+      </div>
+    </div>
+  </div>
+  <div id="pdfToolbar" class="pdf-toolbar" hidden>
+    <span class="pdf-page-ind">第 <span id="pdfCurPage">1</span> / <span id="pdfTotalPages">-</span> 页</span>
+    <span class="pdf-tool-sep"></span>
+    <button type="button" id="btnZoomOut" class="pdf-btn" aria-label="缩小" title="缩小">−</button>
+    <span id="pdfZoomLabel" class="pdf-zoom-label">100%</span>
+    <button type="button" id="btnZoomIn" class="pdf-btn" aria-label="放大" title="放大">＋</button>
+    <button type="button" id="btnFit" class="pdf-btn" aria-label="适应宽度" title="适应宽度">适应</button>
+    <span class="pdf-tool-sep"></span>
+    <span class="pdf-hint">按住拖动可选取文字</span>
+  </div>
+<script src="pdf.min.js"></script>
+<!--__MENGPAW_PDF_DATA__-->
+<script src="viewer.js"></script>
+</body>
+</html>

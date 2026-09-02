@@ -13,6 +13,7 @@ import androidx.activity.enableEdgeToEdge
 import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.util.BrowserStorage
+import com.mengpaw.browser.util.PdfUtil
 import com.mengpaw.browser.ui.theme.BrowserThemeConfig
 import com.mengpaw.core.AndroidLogger
 import com.mengpaw.core.DataPathsInitializer
@@ -49,9 +50,16 @@ class BrowserActivity : ComponentActivity() {
             android.content.res.Configuration.UI_MODE_NIGHT_YES
         // Check for .md file intent
         val mdFileContent = checkMdFile(intent)
+        // Check for local .pdf file intent (file/content) → pdf.js 预览
+        val pdfIntent = pdfSourceFromIntent(intent)
         setContent {
             ArcoTheme(darkTheme = isDark) {
-                BrowserApp(initialUrl = extractUrl(intent), initialMdContent = mdFileContent)
+                BrowserApp(
+                    initialUrl = extractUrl(intent),
+                    initialMdContent = mdFileContent,
+                    initialPdfSource = pdfIntent?.first,
+                    initialPdfTitle = pdfIntent?.second.orEmpty()
+                )
             }
         }
     }
@@ -135,8 +143,13 @@ class BrowserActivity : ComponentActivity() {
                 onOpenMd?.invoke(intent.getStringExtra("title") ?: "", intent.getStringExtra("url") ?: "", md)
             }
             android.content.Intent.ACTION_VIEW -> {
-                val md = checkMdFile(intent)
-                if (md != null) onOpenMd?.invoke("", "", md)
+                val pdf = pdfSourceFromIntent(intent)
+                if (pdf != null) {
+                    onOpenPdf?.invoke(pdf.first, pdf.second)
+                } else {
+                    val md = checkMdFile(intent)
+                    if (md != null) onOpenMd?.invoke("", "", md)
+                }
             }
         }
     }
@@ -158,6 +171,14 @@ class BrowserActivity : ComponentActivity() {
             "content" -> if (intent.type != "text/plain" || uri.toString().endsWith(".md", ignoreCase = true)) readMdUri(uri.toString()) else null
             else -> null
         }
+    }
+
+    /** 本地 .pdf VIEW intent (file:// 或 content://) → (源 uri 串, 显示名); 非 pdf 返回 null。 */
+    private fun pdfSourceFromIntent(intent: Intent?): Pair<String, String>? {
+        if (intent?.action != android.content.Intent.ACTION_VIEW) return null
+        val uri = intent.data?.toString() ?: return null
+        if (!PdfUtil.isLocalPdf(uri, intent.type)) return null
+        return uri to PdfUtil.displayName(uri)
     }
 
     private fun extractUrl(intent: Intent?): String? {
@@ -183,6 +204,8 @@ class BrowserActivity : ComponentActivity() {
     internal var onOpenUrl: ((String?) -> Unit)? = null
     /** OPEN_MD 提炼回传回调: (title, url, md) → 弹 Markdown 预览。 */
     internal var onOpenMd: ((String, String, String) -> Unit)? = null
+    /** 本地 .pdf 打开回调: (源 uri 串, 显示名) → 弹 PDF 预览。 */
+    internal var onOpenPdf: ((String, String) -> Unit)? = null
 
     // ── P1 fix: BuiltinBrowserPlugin 接线 (此前零实例化, browser.* 命令不可达);
     //    v0.8.0 半自动武器: page.* + browser.* 43 条, 经 am 桥暴露 (9880 桥已退役) ──

@@ -1,0 +1,115 @@
+/* MengPaw 浏览器 PDF 预览视图样式 (pdf.js 文本层 CSS 摘自 Apache-2.0 pdf.js) */
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: -apple-system, "PingFang SC", "Microsoft YaHei", Roboto, sans-serif;
+  background: #eceff1;
+  color: #1c1e21;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* ── 顶部工具栏 ── */
+.pdf-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(23, 32, 43, 0.97);
+  color: #fff;
+  font-size: 13px;
+  z-index: 5;
+}
+.pdf-page-ind { white-space: nowrap; opacity: 0.9; }
+.pdf-tool-sep { flex: 1; }
+.pdf-btn {
+  min-width: 34px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 15px;
+  cursor: pointer;
+}
+.pdf-btn:active { background: rgba(255, 255, 255, 0.28); }
+.pdf-zoom-label { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; opacity: 0.95; }
+.pdf-hint { white-space: nowrap; opacity: 0.7; font-size: 12px; }
+
+/* ── 滚动舞台 ── */
+.pdf-stage { position: relative; flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; }
+.pdf-area { position: relative; margin: 0 auto; padding: 12px 0 40px; }
+
+/* ── 单页 ── */
+.pdf-page {
+  position: absolute;
+  left: 0; top: 0;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+}
+.pdf-page canvas { display: block; width: 100%; height: 100%; }
+
+/* pdf.js 文本层 (选中文字用)。容器绝对覆盖页面, 与 canvas CSS 同尺寸。 */
+.textLayer {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+}
+.textLayer span, .textLayer br {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+  transform-origin: 0% 0%;
+}
+.textLayer ::selection {
+  background: rgba(0, 145, 234, 0.28);
+}
+
+/* ── 加载 / 错误遮罩 ── */
+.pdf-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(236, 239, 241, 0.92);
+  z-index: 4;
+}
+.pdf-overlay[hidden] { display: none; }
+.pdf-spinner {
+  width: 34px; height: 34px;
+  border: 3px solid rgba(0, 0, 0, 0.15);
+  border-top-color: #1976d2;
+  border-radius: 50%;
+  animation: pdfspin 0.9s linear infinite;
+}
+@keyframes pdfspin { to { transform: rotate(360deg); } }
+.pdf-loading-text { font-size: 14px; color: #455a64; }
+.pdf-error-box {
+  max-width: 78%;
+  background: #fff;
+  border-radius: 12px;
+  padding: 18px 22px;
+  text-align: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+}
+.pdf-error-title { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #c62828; }
+.pdf-error-text { font-size: 13px; color: #546e7a; word-break: break-all; }

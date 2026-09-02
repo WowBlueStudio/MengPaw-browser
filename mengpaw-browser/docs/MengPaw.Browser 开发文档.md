@@ -123,9 +123,13 @@ com.mengpaw.browser
 ├── plugin/                    # BuiltinBrowserPlugin + 4 命令组 + BrowserCommandContext
 ├── service/                   # RunCommandService (am 桥) / GoogleTranslate
 ├── ui/                        # TopBar / 设置 / 书签 / 历史 / 标签页等 Compose UI
-├── util/                      # AdBlocker / BrowserStorage / DownloadUtil / SmartNavigate
-└── web/                       # WebViewFactory / MdViewer*
+├── util/                      # AdBlocker / BrowserStorage / DownloadUtil / PdfUtil / SmartNavigate
+└── web/                       # WebViewFactory / MdViewer* / PdfViewer*
 ```
+
+> **文档查看器**: `.md` 经 `MdViewer*` + `assets/markdown_viewer`(commonmark→HTML);
+> `.pdf` 经 `PdfViewer*` + `assets/pdf_viewer`(pdf.js 2.16 + CMap, 支持放大/缩小/文字选取,
+> 网络 `.pdf` URL 与本地 file/content VIEW 均可预览)。两者都是近全屏 WebView 对话框。
 
 关键生命周期:
 

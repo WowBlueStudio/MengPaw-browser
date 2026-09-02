@@ -19,6 +19,7 @@ import com.mengpaw.browser.ui.BrowserHistoryDialog
 import com.mengpaw.browser.ui.BrowserImagePickerDialog
 import com.mengpaw.browser.ui.BrowserMarkdownViewerDialog
 import com.mengpaw.browser.ui.BrowserPasswordDialog
+import com.mengpaw.browser.ui.BrowserPdfViewerDialog
 import com.mengpaw.browser.ui.BrowserReaderMode
 import com.mengpaw.browser.ui.BrowserSettingsDialog
 import com.mengpaw.browser.ui.BrowserTabDialog
@@ -71,7 +72,9 @@ internal fun BrowserAppDialogs(
     // ── Bookmarks / Markdown viewer ──
     showBookmarks: Boolean, onDismissBookmarks: () -> Unit,
     onNavigate: (String) -> Unit,
-    showMdViewer: Boolean, mdContent: String, onDismissMdViewer: () -> Unit
+    showMdViewer: Boolean, mdContent: String, onDismissMdViewer: () -> Unit,
+    // ── PDF viewer ──
+    showPdfViewer: Boolean, pdfFile: String?, pdfTitle: String, onDismissPdfViewer: () -> Unit
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
 
@@ -186,5 +189,13 @@ internal fun BrowserAppDialogs(
         visible = showMdViewer && mdContent.isNotBlank(),
         onDismiss = onDismissMdViewer,
         content = mdContent
+    )
+
+    // ── PDF viewer ──
+    BrowserPdfViewerDialog(
+        visible = showPdfViewer,
+        onDismiss = onDismissPdfViewer,
+        filePath = pdfFile,
+        title = pdfTitle
     )
 }
