@@ -12,7 +12,8 @@ plugins {
 // v0.8.1: MCP 开放模式 (第三方 Agent 经 9880 免认证控制, Playwright 式)
 // v0.9.0: 逻辑重构 — 退役 9880 桥与开放模式, am 桥单通道 (决策 #7); batch/q 去重 (决策 #4)
 // v0.10.0: PDF 预览 — pdf.js 渲染 (放大/缩小/文字选取), 网络 .pdf URL + 本地 file/content
-val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.0").get()
+// v0.10.1: 项目定位纠正 — 与 MengPaw Shell 脱钩 (中性独立项目, 仅保留手册同步+经验共维护)
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.1").get()
 
 // 共享地基版本 — 主仓库 kernel tag, JitPack 构件 (com.github.WowBlueStudio.MengPaw:<module>:<tag>)
 val foundationGroup: String = "com.github.WowBlueStudio.MengPaw"
@@ -26,7 +27,7 @@ android {
         applicationId = "com.mengpaw.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
+        versionCode = 17
         versionName = browserVersion
     }
 

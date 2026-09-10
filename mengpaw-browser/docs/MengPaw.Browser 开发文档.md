@@ -1,7 +1,7 @@
 # MengPaw.Browser 开发文档
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
-> 文档版本: v0.10.0 · 2026-09-10 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
+> 文档版本: v0.10.1 · 2026-09-10 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
 > 本文档分两部分: **第一部分**引导 Shell Agent 经 am 桥控制浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
