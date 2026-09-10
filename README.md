@@ -15,7 +15,7 @@ MengPaw Agent 的独立浏览器应用——「半自动武器」+ am 桥控制(
 
 ## 独立版本线
 
-- Browser 走**独立版本节奏** (v0.8.x), 不跟随主项目 `mengpaw.version`。
+- Browser 走**独立版本节奏** (当前 v0.10.x), 不跟随主项目 `mengpaw.version`。
 - 版本单点: `mengpaw-browser/build.gradle.kts` 的 `browserVersion` + `gradle.properties` 的 `mengpaw.browser.version` (需同步)。
 - 共享地基版本: `gradle.properties` 的 `mengpaw.foundation.version` (指向主仓库 kernel tag)。
 
