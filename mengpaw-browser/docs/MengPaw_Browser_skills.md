@@ -1,9 +1,12 @@
-# MengPaw_Browser_skills.md — 浏览器命令手册 (Shell Agent 专用)
+# MengPaw_Browser_skills.md — 浏览器命令手册 (am 桥调用方专用)
 
-> 适用对象: 经 am 桥控制 MengPaw.Browser APK 的 MengPaw Shell Agent(同签名)。
-> 版本: v0.9.0 · 2026-08-29 · 本文件覆盖浏览器全部命令面与操作技巧。
-> 9880 HTTP 桥与开放模式已退役(决策 #7), 第三方接入不再支持, 仅同签名 Shell 可调。
+> 适用对象: 经 am 桥控制 MengPaw.Browser APK 的**同签名调用方**(MengPaw Shell 是其中之一)。
+> 版本: v0.10.0 · 2026-09-10 · 本文件覆盖浏览器全部命令面与操作技巧。
+> 9880 HTTP 桥与开放模式已退役(决策 #7), 第三方接入不再支持, 仅同签名应用可调。
 > 开发者视角的架构细节见同目录 `MengPaw.Browser 开发文档.md`。
+>
+> **本文档是 Browser 项目唯一需要同步给 Shell 侧的资产。** Browser 已与 Shell 脱钩(版本线/发版/
+> 更新链路/文档归属均独立), 仅保留两项耦合: 本手册同步 + 共同维护 Android 开发经验。
 
 ## 1. 快速上手(2 步)
 
@@ -97,7 +100,7 @@ signature 权限 `RUN_BROWSER_COMMAND` 仅同签名应用可调; 输出落盘后
 payload 白名单仅 `page.*` / `browser.*`, 输出路径限制在公共目录 `MengPaw/` 下。
 
 > 9880 HTTP 桥与「开放 MCP 控制」已退役(决策 #7): 无 token、无免认证通道,
-> 浏览器仅接受同签名 Shell 经 am 桥控制, 第三方进程无接入方式。
+> 浏览器仅接受同签名应用经 am 桥控制, 第三方进程无接入方式。
 
 ## 6. 表单自动化
 

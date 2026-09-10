@@ -16,7 +16,7 @@
 MengPaw.Browser(包名 `com.mengpaw.browser`)是一款**可被 AI Agent 编程控制的
 Android 浏览器 APK**: 基于 WebView 的完整浏览器(人可以直接用), 同时内置
 Playwright 语义命令面(`page.*` 22 条 + `browser.*` 21 条), 经 Termux 式
-**am 桥**(`RunCommandService`, signature 权限)对外暴露给同签名 Shell。
+**am 桥**(`RunCommandService`, signature 权限)对外暴露给**同签名应用**(MengPaw Shell 是其中之一)。
 
 一句话概括: **给人用的浏览器, 也是给 Agent 用的浏览器**——Agent 可以像操作
 Playwright 一样, 驱动它打开网页、全页截图、坐标点击、填表、提取内容、管理标签页。
@@ -27,11 +27,11 @@ Playwright 一样, 驱动它打开网页、全页截图、坐标点击、填表�
   页面; 真实浏览器自带会话、Cookie 与 JS 执行环境。
 - **Playwright 语义, 零学习成本**: 命令名与参数对齐 LLM 训练语料中最熟悉的
   Playwright API, Agent 无需额外学习自定义命令。
-- **独立 APK, 与 Shell 松耦合**: 浏览器独立版本节奏、独立仓库; Shell 经 am 桥
-  控制, 无需为浏览器写专门插件。
+- **独立 APK, 与 Shell 已脱钩**: 浏览器是**中性的独立项目**(独立版本节奏、独立仓库、独立发版);
+  Shell 经 am 桥控制属于**外部使用方行为**, 既无需为浏览器写专门插件, 也不影响本项目独立演进。
 - **半自动协作**: `page.load` 一次完成"导航 + 全页分段截图 + 坐标系统", Agent
   看图即可坐标点击, 往返少、上下文省。
-- **安全可控**: am 桥 signature 权限(仅同签名 Shell 可调)+ 命令面白名单 +
+- **安全可控**: am 桥 signature 权限(仅同签名应用可调)+ 命令面白名单 +
   输出路径限制; 9880 桥与开放模式已退役(决策 #7), 第三方接入不再支持。
 
 ### 怎么读本文档
@@ -49,7 +49,7 @@ Playwright 一样, 驱动它打开网页、全页截图、坐标点击、填表�
 
 - 设备已安装 MengPaw.Browser APK(包名 `com.mengpaw.browser`)与 **MengPaw Shell(同签名)**
 - 控制通道为 **Termux 式 am 桥**(`RunCommandService`), 受 signature 权限
-  `com.mengpaw.permission.RUN_BROWSER_COMMAND` 保护——**仅同签名 Shell 可调**,
+  `com.mengpaw.permission.RUN_BROWSER_COMMAND` 保护——**仅同签名应用可调**,
   第三方 App 调用会被系统拒绝(9880 HTTP 桥与开放模式已退役, 第三方接入不再支持)
 - Agent 具备两项能力: `am` 命令执行(唤起浏览器/调命令) / 读取公共目录文件
   (查看截图与输出)
@@ -73,7 +73,7 @@ am startservice -n com.mengpaw.browser/.service.RunCommandService \
 
 | 层 | 措施 |
 |----|------|
-| 调用方认证 | am 桥 signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名 Shell 可调 |
+| 调用方认证 | am 桥 signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名应用可调 |
 | 命令面 | am 桥 payload 白名单 `page.*`/`browser.*`, 拒绝任意 shell 命令 |
 | 输出路径 | 输出文件限制在公共目录 `MengPaw/` 下, 禁止系统路径 |
 | 存储 | `MANAGE_EXTERNAL_STORAGE`, 首启弹窗; 拒绝后每次 `page.load` 提示重授 |
@@ -92,9 +92,15 @@ am startservice -n com.mengpaw.browser/.service.RunCommandService \
 
 ### 5. 仓库与构建
 
-本仓库是 **MengPaw 按 APK 产物拆分后的浏览器独立仓库**(rootProject `MengPawBrowser`,
-仅 `:mengpaw-browser` 一个模块)。共享地基(微内核/Android 适配/设计系统)不在本仓库,
-经 **JitPack** 依赖主仓库发布构件 `com.github.WowBlueStudio.MengPaw:<module>:<tag>`。
+本仓库是**独立的浏览器项目**(rootProject `MengPawBrowser`, 仅 `:mengpaw-browser` 一个模块),
+由 MengPaw 主仓库按 APK 产物拆分而来、**现已独立演进**。共享地基(微内核/Android 适配/设计系统)
+不在本仓库, 经 **JitPack** 依赖主仓库发布构件 `com.github.WowBlueStudio.MengPaw:<module>:<tag>`。
+
+**与 Shell / 主仓库的耦合边界 (仅两项, 其余全部脱钩)**: ① 命令手册
+`docs/MengPaw_Browser_skills.md` 需同步给 Shell 侧; ② Android 开发经验共同沉淀在主仓库
+`docs/lessons.md`。已脱钩: 版本线 / 发版 / 更新链路 / 路线图 / 文档归属。**本项目是中性工具** —
+Shell 把 Browser 当工具使用、乃至主动检查安装其更新, 都属 Shell 自身行为, 与本项目独立演进不矛盾;
+第三方 Shell 类软件同样可按命令手册适配。
 
 - 模块: `mengpaw-browser`(Gradle Android application, 独立 APK `com.mengpaw.browser`)
 - 版本: 独立节奏 v0.10.x, **单点** `gradle.properties` 的 `mengpaw.browser.version`
@@ -107,7 +113,7 @@ am startservice -n com.mengpaw.browser/.service.RunCommandService \
   `.\gradlew.bat :mengpaw-browser:assembleRelease`(release 关闭混淆与资源收缩, 见 build.gradle.kts)
 - 测试: `.\gradlew.bat :mengpaw-browser:testDebugUnitTest`(纯 JVM 单测)
 - 产物: `mengpaw-browser/build/outputs/apk/{debug,release}/mengpaw-browser-v<ver>-{debug,release}.apk`
-  (版本发布需在 GitHub/Gitee Release 附带 release APK, 由 Shell 主应用 `update` 插件捎带更新)
+  (本仓库**独立发布**: 每次 Release 附带 release APK; Shell 侧主动取用/安装更新属其自身行为, 本项目不依赖)
 
 ### 6. 目录结构(文件地图)
 
@@ -179,7 +185,7 @@ extra:   com.mengpaw.browser.RUN_COMMAND_BACKGROUND = true
 
 | 层 | 措施 |
 |---|------|
-| am 桥 | signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名 Shell 可调 |
+| am 桥 | signature 权限 `RUN_BROWSER_COMMAND`, 仅同签名应用可调 |
 | 命令面 | am 桥 payload 白名单 `page.*`/`browser.*`, 拒绝任意 shell |
 | 输出路径 | am 桥输出限制在公共目录 `MengPaw/` 下 |
 | 存储 | `MANAGE_EXTERNAL_STORAGE`, 首启弹窗; 拒绝后每次 `page.load` 提示重授 |

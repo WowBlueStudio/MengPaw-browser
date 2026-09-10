@@ -3,6 +3,20 @@
 > 浏览器独立仓库版本记录。版本单点: `gradle.properties` 的 `mengpaw.browser.version`。
 > 许可: AGPL-3.0-or-later OR LicenseRef-Commercial。
 
+## 未发布 — 项目定位纠正: 与 MengPaw Shell 脱钩
+
+### 变更 (文档, 无代码改动)
+
+- **纠正定位表述**: 本项目是**中性的独立项目**, 不隶属于 MengPaw Shell —— 由 MengPaw 主仓库
+  按 APK 产物拆分而来, 现已独立演进; Shell 把 Browser 当工具使用(含主动检查/安装其更新)属
+  **Shell 自身的集成行为**, 与本项目独立演进不矛盾, 第三方 Shell 类软件同样可按命令手册适配
+- **明确耦合边界 (仅两项)**: ① 命令手册 `docs/MengPaw_Browser_skills.md` 需同步给 Shell 侧;
+  ② Android 开发经验共同沉淀于主仓库 `docs/lessons.md`
+- **已脱钩**: 版本线 / 发版 / 更新链路(原「由 Shell `update` 插件捎带管理」表述已删除) /
+  路线图 / 文档归属
+- 涉及文件: `README.md` / `mengpaw-browser/docs/MengPaw.Browser 开发文档.md` /
+  `mengpaw-browser/docs/MengPaw_Browser_skills.md`
+
 ## v0.10.0 (2026-09-10) — PDF 预览 (pdf.js)
 
 ### 新增
