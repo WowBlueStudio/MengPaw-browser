@@ -283,6 +283,9 @@ fun createWebView(
                 onPdfDetected(url)
                 return true
             }
+            // v0.10.4: 页面内点击链接 = 用户已发起导航 → 立刻置加载态,
+            // 让顶栏的旋转指示"点击即转"（旧版要等 onPageStarted/网络回包才亮）
+            updateTab(tab.id) { it.copy(url = url, isLoading = true) }
             return false
         }
         override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {

@@ -16,7 +16,8 @@ plugins {
 // v0.10.2: 地址栏/导航修复 (获焦全选+待办导航+编辑中不回写) + 明文 http 放行 + 控件/按键普查
 // v0.10.3: 三层闭环+九维审计全量修复 (21 条 browser.* 命令可达/截图落盘校验/书签与会话 JSON/
 //          路径穿越/输出校验/暗色关闭/标签挂起/版本号派生)
-val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.3").get()
+// v0.10.4: 载入反馈 — 顶栏标签按钮左侧的旋转指示器，"点击即转"（不再等到失败页才察觉）
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.4").get()
 
 /**
  * versionCode 由 versionName 派生（v0.10.3 起）— 消灭「漏改字面量」这一类事故。

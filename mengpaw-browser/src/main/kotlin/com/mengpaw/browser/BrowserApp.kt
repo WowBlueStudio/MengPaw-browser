@@ -146,6 +146,15 @@ fun BrowserApp(
 
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.first()
 
+    /**
+     * v0.10.4: 立即置加载态 —— 供刷新/前进/后退等"点击即应有反馈"的按钮使用。
+     * 地址栏导航已由 [browserActions] 的 navigate 在同一帧置位；页面内点击由
+     * WebViewFactory.shouldOverrideUrlLoading 置位。这里补顶栏按钮与快捷键路径。
+     */
+    val startLoading: (Int) -> Unit = { id ->
+        tabs = tabs.map { if (it.id == id) it.copy(isLoading = true) else it }
+    }
+
     // 导航/返回/标签/收藏动作 — 读取项以 getter 传入, 首帧实例也不会读到过期状态
     val actions = browserActions(
         ctx = ctx, prefs = prefs, webViewMap = webViewMap,
@@ -192,9 +201,9 @@ fun BrowserApp(
 
     val shortcuts = BrowserShortcutActions(
         onFocusUrlBar = { overlays.showUrlBar = true; urlBarFocusRequester.requestFocus() },
-        onReload = { webViewMap[activeTabId]?.reload() },
+        onReload = { startLoading(activeTabId); webViewMap[activeTabId]?.reload() },
         onBack = actions.handleBack,
-        onForward = { webViewMap[activeTabId]?.goForward() },
+        onForward = { startLoading(activeTabId); webViewMap[activeTabId]?.goForward() },
         onNewTab = actions.openNewTab,
         onCloseTab = actions.closeTab,
         onFind = { overlays.showFind = true },
@@ -224,9 +233,9 @@ fun BrowserApp(
                     onShowTabs = { overlays.showTabs = !overlays.showTabs },
                     onShowBookmarks = { overlays.showBookmarks = true },
                     onToggleBookmark = actions.toggleBookmark,
-                    onRefresh = { webViewMap[activeTabId]?.reload() },
-                    onGoForward = { webViewMap[activeTabId]?.goForward() },
-                    onGoBack = { webViewMap[activeTabId]?.goBack() },
+                    onRefresh = { startLoading(activeTabId); webViewMap[activeTabId]?.reload() },
+                    onGoForward = { startLoading(activeTabId); webViewMap[activeTabId]?.goForward() },
+                    onGoBack = { startLoading(activeTabId); webViewMap[activeTabId]?.goBack() },
                     onNewTab = actions.openNewTab,
                     onCloseTab = actions.closeTab,
                     onShowTranslate = { overlays.showTranslate = true },

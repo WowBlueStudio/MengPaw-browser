@@ -210,20 +210,42 @@ fun BrowserTopBar(
                 }
             },
             navigationIcon = {
-                Row {
-                    // 宽屏常驻导航按钮 (实现见 BrowserNavIcons, 400 行拆分批次 3)
-                    BrowserNavIcons(
-                        isWide = isWide,
-                        canGoBack = activeTab.canGoBack,
-                        canGoForward = activeTab.canGoForward,
-                        homeUrl = homeUrl,
-                        onNavigate = onNavigate,
-                        onBack = onBack,
-                        onGoForward = onGoForward,
-                        onRefresh = onRefresh
-                    )
-                    // Tab count badge (phone only, hidden when 1 tab)
-                    if (!isWide) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isWide) {
+                        // 宽屏: 旋转指示紧贴常驻导航按钮左侧, 只有载入时出现
+                        if (activeTab.isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp).padding(end = 2.dp),
+                                strokeWidth = 2.dp,
+                                color = ThemeColors.brand
+                            )
+                        }
+                        // 宽屏常驻导航按钮 (实现见 BrowserNavIcons, 400 行拆分批次 3)
+                        BrowserNavIcons(
+                            isWide = true,
+                            canGoBack = activeTab.canGoBack,
+                            canGoForward = activeTab.canGoForward,
+                            homeUrl = homeUrl,
+                            onNavigate = onNavigate,
+                            onBack = onBack,
+                            onGoForward = onGoForward,
+                            onRefresh = onRefresh
+                        )
+                    } else if (activeTab.isLoading) {
+                        // 手机: 载入中时用旋转指示**临时代替**标签菜单按钮 (同一位置、同一 40dp 占位,
+                        // 不跳位) —— 用户反馈「点了以后看不出在载入」, 这里把最显眼的左侧位置让给指示器。
+                        Box(
+                            modifier = Modifier.size(40.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = ThemeColors.brand
+                            )
+                        }
+                    } else {
+                        // Tab count badge (phone only, hidden when 1 tab)
                         IconButton(
                             onClick = onShowTabs,
                             modifier = Modifier.size(40.dp)

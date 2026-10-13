@@ -102,7 +102,11 @@ internal fun ColumnScope.BrowserContentArea(
         // WebView with pull-to-refresh
         val pullState = rememberPullRefreshState(
             refreshing = activeTab.isLoading,
-            onRefresh = { webViewMap[activeTabId]?.reload() }
+            // v0.10.4: 下拉刷新同样"点击即转" — 先置加载态再 reload
+            onRefresh = {
+                updateTab(activeTabId) { it.copy(isLoading = true) }
+                webViewMap[activeTabId]?.reload()
+            }
         )
         // Pre-render: keep all WebViews alive, visibility-toggle instead of destroy
         Box(Modifier.weight(1f).pullRefresh(pullState)) {
