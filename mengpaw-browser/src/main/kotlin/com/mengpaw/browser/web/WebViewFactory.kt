@@ -200,16 +200,37 @@ fun createWebView(
             }
         }
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-            // Only replace content for main frame errors, not subresources (images/scripts)
-            if (request?.isForMainFrame != true) return
-            val failingUrl = request?.url?.toString() ?: view?.url ?: ""
             val desc = error?.description?.toString() ?: "未知错误"
+            val failingUrl = request?.url?.toString() ?: view?.url ?: ""
+            // 累计修改（兼容性诊断）: 子资源失败此前被完全忽略 ⇒ 站点「接口 Network Error /
+            // 菜单点不开 / 100vh 段不生效」现场无从取证。这里把**每个失败的子资源 URL + 错误码**
+            // 落盘（logcat 被设备抑制时仍可 cat MpDiag/probe.log）。
+            if (request?.isForMainFrame != true) {
+                val code = try { error?.errorCode } catch (_: Exception) { null }
+                DiagLog.append(ctx, "subres-fail", "code=$code $desc $failingUrl")
+                return
+            }
             // 主帧失败必须停掉加载态, 否则进度条永远转 (旧实现漏了这一步)
             updateTab(tab.id) { it.copy(isLoading = false) }
             android.util.Log.e("BrowserActivity", "Page load failed ($desc): $failingUrl")
+            DiagLog.append(ctx, "main-fail", "$desc $failingUrl")
             view?.loadDataWithBaseURL(
                 null, errorPageHtml(desc, failingUrl), "text/html", "UTF-8", null
             )
+        }
+
+        /**
+         * 累计修改（兼容性诊断）: HTTP 错误（403/404/500…）此前完全不感知。
+         * 站点接口被 WAF/鉴权拒绝时会走到这里，是判定"接口被拦还是 CORS 失败"的关键证据。
+         */
+        override fun onReceivedHttpError(
+            view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?
+        ) {
+            val url = request?.url?.toString() ?: return
+            val status = try { errorResponse?.statusCode } catch (_: Exception) { null }
+            val reason = try { errorResponse?.reasonPhrase } catch (_: Exception) { null }
+            val main = request?.isForMainFrame == true
+            DiagLog.append(ctx, if (main) "http-error-main" else "http-error", "$status $reason $url")
         }
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
             // SECURITY: Block dangerous URL schemes (javascript:, data:, content:, etc.)
@@ -282,6 +303,8 @@ fun createWebView(
                 // 退化默认值还是别的数值, 只有实测能钉死; 见 `adb logcat -s MpWebConsole`。
                 logViewportMetrics("finished")
                 postDelayed({ try { logViewportMetrics("finished+1s") } catch (_: Exception) { } }, 1000)
+                // hero 高度规则审计（第三轮取证: 判断是 vh 不对还是规则没生效）
+                postDelayed({ try { logHeroCssAudit() } catch (_: Exception) { } }, 2000)
                 // Hide app-banner elements
                 evaluateJavascript(HIDE_APP_BANNER_JS, null)
                 // 站点 JS 错误钩子（诊断用；幂等）
@@ -335,6 +358,10 @@ fun createWebView(
             if (request?.isForMainFrame != true && adBlock() &&
                 request?.url != null && isAdRequest(request.url.toString())
             ) {
+                // 累计修改（兼容性诊断）: 被拦的**真实 URL** 必须落盘 —— 站点接口被
+                // 关键词型规则误伤时，跨域 XHR 会因缺少 CORS 头变成 "Network Error"，
+                // 表现为「菜单点不开 / 100vh 段不生效」，只有看到 URL 才能定位。
+                DiagLog.append(ctx, "adblock", "blocked: ${request.url}")
                 return WebResourceResponse("text/plain", "utf-8", null)
             }
             return super.shouldInterceptRequest(view, request)

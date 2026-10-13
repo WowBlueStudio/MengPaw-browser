@@ -124,6 +124,41 @@ internal fun WebView.loadWhenLaidOut(url: String) {
 }
 
 /**
+ * hero 高度规则审计（累计修改 — 兼容性诊断，第三轮）。
+ *
+ * 实测: 站点 hero 实测高度 195px、**计算 min-height = 0px**（站点 CSS 里本应是
+ * `min-height:calc(90vh - 60px)`）⇒ 不是 vh 不对，而是**那条规则没生效**。
+ * 这里把"已应用样式表里所有含 fixed-overslider 的规则"连同样式表总数打出来，
+ * 直接区分: ①样式表没加载 ②选择器不匹配 ③声明被覆盖/无效。
+ */
+internal fun WebView.logHeroCssAudit() {
+    val js = "(function(){try{var o={ss:document.styleSheets.length};" +
+        "var el=document.querySelector('.fixed-overslider');" +
+        "if(el){o.cls=(el.closest('[class*=trek-marquee]')||{}).className||'';" +
+        "o.inline=el.getAttribute('style')||'';o.compMin=getComputedStyle(el).minHeight;" +
+        "o.compPos=getComputedStyle(el).position;o.compH=Math.round(el.getBoundingClientRect().height)}" +
+        "var f=[];try{for(var i=0;i<document.styleSheets.length;i++){var ss=document.styleSheets[i];" +
+        "var href=ss.href||'(inline)';var rs=null;try{rs=ss.cssRules}catch(e){f.push('CORS-blocked:'+href);continue}" +
+        "if(!rs)continue;for(var j=0;j<rs.length;j++){var r=rs[j];" +
+        "if(r.selectorText&&r.selectorText.indexOf('fixed-overslider')>=0){" +
+        "f.push(r.selectorText+' | minH='+r.style.minHeight+' h='+r.style.height)}" +
+        "else if(r.cssRules){for(var k=0;k<r.cssRules.length;k++){var rr=r.cssRules[k];" +
+        "if(rr.selectorText&&rr.selectorText.indexOf('fixed-overslider')>=0){" +
+        "f.push('@'+(r.conditionText||'')+' | '+rr.selectorText+' | minH='+rr.style.minHeight+' h='+rr.style.height)}}}}}" +
+        "}catch(e){f.push('scan-err:'+e.message)}o.rules=f.slice(0,8);" +
+        "var mq=document.querySelector('[class*=trek-marquee]');" +
+        "if(mq){o.mqCls=mq.className;o.mqH=Math.round(mq.getBoundingClientRect().height)}" +
+        "return JSON.stringify(o)}catch(e){return ''}})()"
+    try {
+        evaluateJavascript(js) { raw ->
+            if (!raw.isNullOrBlank() && raw != "null" && raw != "\"\"") {
+                DiagLog.append(context, "hero-css", raw)
+            }
+        }
+    } catch (_: Exception) { }
+}
+
+/**
  * 视口与关键元素自证日志（累计修改 — 兼容性诊断）。
  *
  * 站点「100vh 段被挤成窄条」「顶栏菜单点了不出现」这类问题，只有把**真实数值**打出来才能定论：

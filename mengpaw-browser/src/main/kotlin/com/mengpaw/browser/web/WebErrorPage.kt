@@ -43,8 +43,15 @@ document.head.appendChild(s)})();
  * `adb logcat -s MpWebConsole` 直接读取。
  */
 internal val MP_ERROR_HOOK_JS = "(function(){if(window.__mpErrHook)return;window.__mpErrHook=1;" +
-    "window.addEventListener('error',function(e){try{console.error('[mp] JS error: '+(e.message||'')+" +
-    "' @ '+(e.filename||'')+':'+(e.lineno||0))}catch(x){}},true);" +
+    // 脚本错误: 有 message/filename/lineno
+    "window.addEventListener('error',function(e){" +
+    "try{" +
+    // 资源(script/link/img)加载失败时 e.message 为空, 必须记录真实 URL(判定是否被我们拦掉)
+    "var t=e.target||{};" +
+    "var u=t.src||t.href||'';" +
+    "if(!e.message&&u){console.error('[mp] resource error: '+u)}" +
+    "else{console.error('[mp] JS error: '+(e.message||'')+' @ '+(e.filename||'')+':'+(e.lineno||0))}" +
+    "}catch(x){}},true);" +
     "window.addEventListener('unhandledrejection',function(e){try{console.error('[mp] unhandled rejection: '+" +
     "((e.reason&&e.reason.message)||String(e.reason)))}catch(x){}});})();"
 
