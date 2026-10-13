@@ -29,6 +29,7 @@ import com.mengpaw.browser.ui.NewTabPage
 import com.mengpaw.browser.util.PdfUtil
 import com.mengpaw.browser.web.applyUserAgent
 import com.mengpaw.browser.web.createWebView
+import com.mengpaw.browser.web.loadWhenLaidOut
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,6 +93,11 @@ internal fun ColumnScope.BrowserContentArea(
         androidx.compose.runtime.mutableStateOf(-1L)
     }
 
+    // 已"下发过首屏加载"的 tabId（累计修改）— update 块会因重组被反复调用,
+    // 用集合保证每个标签的首屏加载只下发一次。放在分支之外与 consumedSeq 同理:
+    // 冷启动↔常规渲染切换时不丢基线。
+    val initialLoadIssued = androidx.compose.runtime.remember { mutableSetOf<Int>() }
+
     if (isColdStart) {
         NewTabPage(
             searchQuery = searchQuery,
@@ -137,22 +143,29 @@ internal fun ColumnScope.BrowserContentArea(
                         factory = { ctx ->
                             val wv = webViewMap[tab.id]
                             if (wv != null) wv
-                            else createWebView(
-                                ctx, tab, isWide,
-                                adBlock = adBlockEnabled,
-                                autoInject = autoInjectBridge,
-                                updateTab = updateTab,
-                                onMediaDetected = onImagesDetected,
-                                onScroll = onScroll,
-                                onMarkdownDetected = { url -> fetchMarkdownUrl(url) },
-                                onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) },
-                                // 有待办导航时构造期不加载, 交给 update 统一消费 (避免重复导航)
-                                loadInitialUrl = pendingLoad?.tabId != tab.id,
-                                // 平板请求桌面版页面, 手机请求移动版
-                                desktopSite = desktopSite,
-                                // 站点弹窗（window.open）→ 开新标签承接
-                                onNewWindow = onNewWindow
-                            )
+                            else {
+                                // 构造期是否加载首屏:
+                                // ① 有待办导航 → 不加载, 交给 update 统一消费 (避免重复导航);
+                                // ② 非激活标签 → 不加载。它被排布在 alpha(0)+height(0) 下,
+                                //    此时加载会让站点 JS 在 0 高度算好并缓存首屏,
+                                //    切回激活后永久保持矮条 (见 WebViewLoadTiming.kt)。
+                                val loadInitially = isActive && pendingLoad?.tabId != tab.id
+                                createWebView(
+                                    ctx, tab, isWide,
+                                    adBlock = adBlockEnabled,
+                                    autoInject = autoInjectBridge,
+                                    updateTab = updateTab,
+                                    onMediaDetected = onImagesDetected,
+                                    onScroll = onScroll,
+                                    onMarkdownDetected = { url -> fetchMarkdownUrl(url) },
+                                    onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) },
+                                    loadInitialUrl = loadInitially,
+                                    // 平板请求桌面版页面, 手机请求移动版
+                                    desktopSite = desktopSite,
+                                    // 站点弹窗（window.open）→ 开新标签承接
+                                    onNewWindow = onNewWindow
+                                ).also { if (loadInitially) initialLoadIssued.add(tab.id) }
+                            }
                         },
                         update = { wv ->
                             webViewMap[tab.id] = wv
@@ -161,9 +174,18 @@ internal fun ColumnScope.BrowserContentArea(
                             applyUserAgent(wv, desktopSite)
                             val pending = pendingLoad
                             if (pending != null && pending.tabId == tab.id && consumedSeq.value != pending.seq) {
+                                // 待办导航优先 (语义不变): 命中即立即加载并消费
                                 consumedSeq.value = pending.seq
+                                initialLoadIssued.add(tab.id)
                                 wv.loadUrl(pending.url)
                                 onPendingLoadConsumed()
+                            } else if (isActive && tab.id !in initialLoadIssued &&
+                                pending?.tabId != tab.id &&
+                                wv.url.isNullOrBlank() && wv.originalUrl.isNullOrBlank()
+                            ) {
+                                // 该标签刚变为激活且从未加载过 → 补加载 (布局就绪时才真正发起)
+                                initialLoadIssued.add(tab.id)
+                                wv.loadWhenLaidOut(tab.url)
                             }
                         },
                         modifier = Modifier
