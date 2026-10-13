@@ -3,7 +3,7 @@
 > 浏览器独立仓库版本记录。版本单点: `gradle.properties` 的 `mengpaw.browser.version`。
 > 许可: AGPL-3.0-or-later OR LicenseRef-Commercial。
 
-## 未发布 (Unreleased) — 地址栏转到修复 + 网站打不开修复 + 控件/按键普查
+## v0.10.2 (2026-10-13) — 地址栏转到修复 + 网站打不开修复 + 控件/按键普查
 
 ### 修复 (P0 — 用户报障)
 
@@ -66,10 +66,13 @@
 
 ### 发行
 
-- 本条目为代码/文档变更; 是否发版 (版本号 + 签名 APK + 双远端 Release) 由用户指令决定
-- 测试: `:mengpaw-browser:testDebugUnitTest` (SmartNavigate 用例扩充至覆盖全角/IP/端口/尾点)
-- 构建: `:mengpaw-browser:assembleDebug` 通过 (合并后 Manifest 已含 `usesCleartextTraffic`
-  与 `windowSoftInputMode`)
+- APK: `mengpaw-browser-v0.10.2-release.apk` (versionCode 18, 签名 CN=MengPaw, OU=Studio, O=WowBlue;
+  `apksigner` 与 `aapt2 dump badging` 双复核: versionName 0.10.2 / targetSdk 35 / 明文流量已放行)
+- plugins.json: 无变更 (浏览器独立仓库不含插件市场)
+- 测试: `:mengpaw-browser:testDebugUnitTest` 32 用例全绿
+  (AdBlockerTest 8 + SmartNavigateTest 19 + PdfUtilTest 5) — SmartNavigate 13→19
+- 构建: `.\gradlew.bat :mengpaw-browser:assembleRelease --build-cache --console=plain` (未 clean)
+- 双平台 Release 同批创建并附 APK (GitHub + Gitee)
 
 ### 真机自测待做 (Agent 未验证 — 无设备连接, 需用户确认)
 
