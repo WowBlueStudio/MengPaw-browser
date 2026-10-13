@@ -124,19 +124,40 @@ internal fun WebView.loadWhenLaidOut(url: String) {
 }
 
 /**
- * 视口尺寸自证日志（累计修改 — 兼容性诊断）。
+ * 视口与关键元素自证日志（累计修改 — 兼容性诊断）。
  *
- * 站点「100vh 段被挤成窄条」到底是 0、退化默认值(320×240) 还是别的数值，只有实测能钉死。
- * 每次页面加载完成后打一行到 `MpWebConsole`，可直接 `adb logcat -s MpWebConsole` 读。
+ * 站点「100vh 段被挤成窄条」「顶栏菜单点了不出现」这类问题，只有把**真实数值**打出来才能定论：
+ * - 视口: `innerHeight` / `clientHeight` / `visualViewport` / `devicePixelRatio` / `scale`；
+ * - 断点: 站点桌面布局用 `@media (min-width:1024px)`，必须知道我们落在哪一侧；
+ * - hero: 站点用 `.trek-marquee .fixed-overslider{min-height:calc(90vh - 60px)}` 这类纯 CSS vh，
+ *   打印它的**实测高度**与**计算出的 min-height**即可判断是 vh 不对还是规则没生效；
+ * - 顶栏菜单: 触发元素的 `aria-expanded` 与弹层的 `visibility/height/display`，
+ *   判断"点了没反应"是事件没绑上/没触发，还是弹层被隐藏/零高。
+ *
+ * 结果统一打到 `MpWebConsole`（`adb logcat -s MpWebConsole` 可直读）。
  */
 internal fun WebView.logViewportMetrics(tag: String) {
     val probe = "(function(){try{var d=document.documentElement,v=window.visualViewport;" +
-        "return JSON.stringify({ih:window.innerHeight,ch:d.clientHeight,iw:window.innerWidth," +
-        "dpr:window.devicePixelRatio,vvh:v?Math.round(v.height):null,scale:v?v.scale:null})}catch(e){return ''}})()"
+        "var o={ih:window.innerHeight,ch:d.clientHeight,iw:window.innerWidth," +
+        "dpr:window.devicePixelRatio,vvh:v?Math.round(v.height):null,scale:v?v.scale:null," +
+        "lg:window.matchMedia('(min-width:1024px)').matches," +
+        "hover:window.matchMedia('(hover: hover)').matches," +
+        "coarse:window.matchMedia('(pointer: coarse)').matches," +
+        "touch:('ontouchstart' in window)};" +
+        "var h=document.querySelector('.fixed-overslider');" +
+        "if(h){var r=h.getBoundingClientRect();o.heroH=Math.round(r.height);" +
+        "o.heroMin=getComputedStyle(h).minHeight;o.heroW=Math.round(r.width)}" +
+        "var t=document.querySelector('[aria-expanded]');" +
+        "if(t){o.navTrig=(t.getAttribute('aria-label')||t.textContent||'').trim().substring(0,20);" +
+        "o.navExp=t.getAttribute('aria-expanded')}" +
+        "var n=document.querySelector('.nav-scroll-wrapper');" +
+        "if(n){var cs=getComputedStyle(n);var nr=n.getBoundingClientRect();" +
+        "o.navVis=cs.visibility;o.navDisp=cs.display;o.navH=Math.round(nr.height);o.navW=Math.round(nr.width)}" +
+        "return JSON.stringify(o)}catch(e){return ''}})()"
     try {
         evaluateJavascript(probe) { raw ->
-            if (!raw.isNullOrBlank() && raw != "null") {
-                Log.i("MpWebConsole", "[mp] viewport($tag) $raw")
+            if (!raw.isNullOrBlank() && raw != "null" && raw != "\"\"") {
+                Log.i("MpWebConsole", "[mp] probe($tag) $raw")
             }
         }
     } catch (_: Exception) { }
