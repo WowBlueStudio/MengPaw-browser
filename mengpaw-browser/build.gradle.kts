@@ -17,7 +17,8 @@ plugins {
 // v0.10.3: 三层闭环+九维审计全量修复 (21 条 browser.* 命令可达/截图落盘校验/书签与会话 JSON/
 //          路径穿越/输出校验/暗色关闭/标签挂起/版本号派生)
 // v0.10.4: 载入反馈 — 顶栏标签按钮左侧的旋转指示器，"点击即转"（不再等到失败页才察觉）
-val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.4").get()
+// v0.10.5: 形态自适应 UA (平板桌面版) + 站点兼容性 (推广条 CSS 收窄/广告拦截放宽/window.open 弹层)
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.5").get()
 
 /**
  * versionCode 由 versionName 派生（v0.10.3 起）— 消灭「漏改字面量」这一类事故。

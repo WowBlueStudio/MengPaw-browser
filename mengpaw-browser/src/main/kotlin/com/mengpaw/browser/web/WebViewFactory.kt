@@ -209,8 +209,10 @@ fun createWebView(
     settings.allowFileAccess = true
     // 累计修改: 平板请求桌面版页面, 手机请求移动版 (设备类别判定, 策略见 UserAgent.kt)
     applyUserAgent(this, desktopSite)
-    // SECURITY: Disable third-party cookies to prevent cross-site tracking
-    try { CookieManager.getInstance().setAcceptThirdPartyCookies(this, false) } catch (_: Exception) { }
+    // 累计修改（兼容性对齐）: 第三方 Cookie 改为**允许** —— Chromium/Edge 的默认行为。
+    // 旧实现显式 false，比 Chrome/Edge 更严：依赖第三方 Cookie 的同意管理(CMP)/标签管理器/
+    // 嵌入式登录会让站点局部 JS 初始化失败（分类菜单点不开、浮层弹窗不出现）。
+    try { CookieManager.getInstance().setAcceptThirdPartyCookies(this, true) } catch (_: Exception) { }
     try { CookieManager.getInstance().setAcceptCookie(true) } catch (_: Exception) { }
 
     // SECURITY (P0 fix): Agent 控制浏览器完全走 Kotlin 侧直接方法调用 (BrowserBridge 由
@@ -310,9 +312,13 @@ fun createWebView(
             val lower = url.lowercase()
             if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
                 if (lower.startsWith("file://") || lower.startsWith("about:")) return false
-                // 危险协议: 页面脚本注入 / 本地内容 — 一律拦截
+                // 累计修改（兼容性对齐）: blob: 是站点自己生成的内容（下载/预览/导出），
+                // Chromium/Edge 允许在同一 WebView 内导航 —— 旧实现当危险协议拦掉，
+                // 会让站点的「导出/预览/下载」类按钮点了没反应。危险协议仍拦：
+                // javascript: / data: / content:
+                if (lower.startsWith("blob:")) return false
                 if (lower.startsWith("javascript:") || lower.startsWith("data:") ||
-                    lower.startsWith("blob:") || lower.startsWith("content:")) {
+                    lower.startsWith("content:")) {
                     android.util.Log.w("BrowserActivity", "Blocked unsafe URL scheme: ${url.take(80)}")
                     return true
                 }

@@ -266,7 +266,11 @@ fun BrowserApp(
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
+        // v0.10.5: 容器高度**忽略键盘**（不再 imePadding/adjustResize）——
+        // 键盘弹出时 WebView 保持全高，站点的 `100vh`/`height:100%` 容器不再被压矮，
+        // 也不存在「键盘收起后残留内边距把页面永久顶矮」的隐患。
+        // 代价: 底部（查找栏/页面底部输入框）会被键盘覆盖 —— 与用户口径一致（内容高度优先）。
+        Column(Modifier.fillMaxSize().padding(padding)) {
             // ── Desktop tab bar ──
             if (isWide && !isColdStart) {
                 DesktopTabBar(
