@@ -62,12 +62,14 @@ class HistoryStore(ctx: Context) {
     /** 序列化快照并排队异步落盘。 */
     private fun persist(snapshot: List<Entry>) {
         val payload = snapshot.joinToString("|") { encode(it) }
-        val gen = genSnapshot()
+        val genAtSubmit = genSnapshot()
         try {
             io.execute {
                 try {
-                    // 期间被 clear() 作废则丢弃过期快照, 避免清空后被回写
-                    if (gen == genSnapshot()) p.edit().putString("entries", payload).apply()
+                    // 期间被 clear() 作废则丢弃过期快照, 避免清空后被回写。
+                    // 代次经局部变量传入, 避免工作线程依赖字段的跨线程可见性。
+                    val stillValid = genSnapshot() == genAtSubmit
+                    if (stillValid) p.edit().putString("entries", payload).apply()
                 } catch (e: Exception) {
                     // apply() 不回写磁盘异常, 这里兜住 Executor 层的意外失败
                     Log.w(TAG, "历史落盘失败 (${snapshot.size} 条)", e)
@@ -78,6 +80,10 @@ class HistoryStore(ctx: Context) {
         }
     }
 
+    /**
+     * 读取当前写入代次。工作线程与主线程都可能调用 —
+     * [writeLock] 内只做字段读取, 无嵌套持锁路径。
+     */
     private fun genSnapshot(): Long = synchronized(writeLock) { generation }
 
     private fun ensureLoaded(): MutableList<Entry> {
