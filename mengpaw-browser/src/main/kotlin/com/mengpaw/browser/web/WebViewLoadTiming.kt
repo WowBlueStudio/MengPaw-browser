@@ -157,7 +157,8 @@ internal fun WebView.logViewportMetrics(tag: String) {
     try {
         evaluateJavascript(probe) { raw ->
             if (!raw.isNullOrBlank() && raw != "null" && raw != "\"\"") {
-                Log.i("MpWebConsole", "[mp] probe($tag) $raw")
+                // 双通道: logcat(Log.w, 本设备可能被抑制) + 文件(ADB 可直接 cat)
+                DiagLog.append(context, "probe:$tag", raw)
             }
         }
     } catch (_: Exception) { }

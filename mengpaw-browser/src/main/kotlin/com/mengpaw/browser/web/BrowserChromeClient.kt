@@ -53,7 +53,8 @@ internal fun createBrowserChromeClient(
         val m = msg ?: return false
         if (m.messageLevel() >= ConsoleMessage.MessageLevel.WARNING) {
             val line = "[${m.sourceId()}:${m.lineNumber()}] ${m.message()?.take(400)}"
-            android.util.Log.w("MpWebConsole", line)
+            // 双通道落盘: 站点 JS 报错必须能在 logcat 被抑制的设备上取证
+            DiagLog.append(ctx, "console", line)
             onConsole(line)
             return true
         }
