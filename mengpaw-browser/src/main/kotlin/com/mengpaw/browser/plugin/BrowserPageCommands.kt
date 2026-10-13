@@ -60,10 +60,13 @@ internal class BrowserPageCommands(private val ctx: BrowserCommandContext) {
         val target = tabs.firstOrNull { !it.isActive && it.url.isBlank() }?.id
             ?: tabs.firstOrNull { !it.isActive }?.id
             ?: (ctx.maxTabs - 1)
-        // v0.10.3: 如实回报（此前无论是否真的打开都回「后台预加载中」）
+        // v0.10.5: 如实回报 + 语义澄清 —— 后台标签被排布在 height(0) 下，若此时真加载，
+        // 站点会在 0 高度下算好首屏并缓存（Trek 首页 100vh 段挤成窄条），切回激活也不重算。
+        // 因此这里只**登记 URL**，真正加载推迟到切到该标签（有真实尺寸）时。
         val err = ctx.tabOpener(target, url)
         return if (err == null) ExecutionResult.ok(
-            "后台预加载中 (标签页$target): $url\n使用 browser.tab $target 切换查看。")
+            "已排入标签页 $target: $url\n（切到该标签时才发起加载 —— 后台标签无真实尺寸，" +
+                "提前加载会让站点按 0 高度算错首屏）\n使用 browser.tab $target 切换。")
         else ExecutionResult.fail(err, errorCode = ErrorCodes.ERR_INTERNAL)
     }
 

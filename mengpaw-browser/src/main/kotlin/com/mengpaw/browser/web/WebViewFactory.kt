@@ -102,6 +102,11 @@ fun createWebView(
     settings.databaseEnabled = true
     settings.loadWithOverviewMode = true
     settings.useWideViewPort = true
+    // 累计修改（社区/官方口径）: Chromium 文档给"像浏览器一样配置 WebView"的三件套是
+    // useWideViewPort(true) + loadWithOverviewMode(true) + layoutAlgorithm=TEXT_AUTOSIZING；
+    // 缺第三项时排版宽度按 AOSP 缺省 NARROW_COLUMNS 走，与 Chrome/Edge 的字号排版不一致。
+    // 注: 该项只影响排版/字号，**不影响 `vh` 高度**（100vh 矮条问题见 WebViewLoadTiming.kt）。
+    try { settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING } catch (_: Exception) { }
     settings.builtInZoomControls = true
     settings.displayZoomControls = false
     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
@@ -273,6 +278,10 @@ fun createWebView(
         override fun onPageFinished(view: WebView?, url: String?) {
             updateTab(tab.id) { it.copy(isLoading = false, title = view?.title ?: "", canGoBack = view?.canGoBack() ?: false, canGoForward = view?.canGoForward() ?: false) }
             url?.let { u ->
+                // 视口自证日志（累计修改 — 兼容性诊断）: 站点「100vh 矮条」到底是 0、
+                // 退化默认值还是别的数值, 只有实测能钉死; 见 `adb logcat -s MpWebConsole`。
+                logViewportMetrics("finished")
+                postDelayed({ try { logViewportMetrics("finished+1s") } catch (_: Exception) { } }, 1000)
                 // Hide app-banner elements
                 evaluateJavascript(HIDE_APP_BANNER_JS, null)
                 // 站点 JS 错误钩子（诊断用；幂等）

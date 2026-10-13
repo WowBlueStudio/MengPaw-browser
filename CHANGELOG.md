@@ -55,12 +55,32 @@
   `data/UaMode.kt` + `UaModeTest`）。默认"自动"= 平板桌面版、手机移动版；站点不适配时
   用户可一键覆盖、刷新生效，不必等发版。
 
-### 修复（当前正在处理：Trek 首页 100vh 首屏挤成"窄条"）
+### 修复（Trek 首页 100vh 首屏挤成"窄条" — 根因：**在 0 尺寸下加载页面**）
 
-- 已定位根因方向（社区已知类问题）：**页面在 WebView 尚未布局（尺寸 0×0）时就开始加载**，
-  站点按 0 高度算出整屏 hero 高度并缓存；另有**非激活标签以 `height(0.dp)` 排布却仍加载 URL**，
-  同样在 0 高度下完成首屏计算。修复项（`loadWhenLaidOut` + 非激活标签懒加载）由并行子会话落地中，
-  落地后在此补记。
+根因（有 Chromium 官方与社区证据）: Chromium CL 175043002 明确 *"a zero height … is frequently
+how a new WebView is first laid out"*；StackOverflow 高票答案与 `innerHeight` 早读为 0 的案例表明，
+**在 WebView 尚未布局（0×0）时就开始加载**，站点会在 `innerHeight ≈ 0` 下算好每个 `100vh` 段并缓存，
+之后尺寸恢复也不再重算（查过且 Edge 无此问题）。本仓库两处会触发：
+
+- `AndroidView` 的 factory 阶段就 `loadUrl`（当时 WebView 是 0×0）；
+- **非激活标签**用 `alpha(0f)+height(0.dp)` 排布，却仍各自加载自己的 URL。
+
+修复：
+- 新增 `web/WebViewLoadTiming.kt`：`loadWhenLaidOut(url)` —— 尺寸非 0 直载；否则等
+  `OnGlobalLayoutListener` 首次测得非 0 尺寸；**300ms 兜底只重试、绝不在 0 尺寸下加载**
+  （首版兜底会无条件加载，是调研复核发现的漏洞），重试 10 次仍无尺寸则放弃并记日志。
+- `BrowserContentArea`：非激活标签不加载；**变为激活时**才补加载；待办导航（含
+  `browser.preload` 指向后台标签）也**只在该标签激活时消费**，否则保持待办。
+- `web/BrowserChromeClient.kt` / `FileDownloader.kt` / `WebErrorPage.kt`：把 605 行的
+  `WebViewFactory.kt` 拆到每文件 ≤400 行（现 355 行），并为探针 WebView 开 JS +
+  3s 超时销毁 + 主帧过滤、`blob:`/`data:` 下载改走 FileReader 取回（DownloadManager 只收 http/https）、
+  文件选择失败补 `onReceiveValue(null)`、非摄录类权限请求一律 deny、定位 `retain=true`。
+- 配置对齐 Chromium 官方"像浏览器"三件套：补 `layoutAlgorithm = TEXT_AUTOSIZING`
+  （只影响排版/字号，**不修 vh**，勿当根因）。
+- 新增**视口自证日志**：每次 `onPageFinished`（以及 +1s）打一行
+  `[mp] viewport(...) {"ih":…,"ch":…,"vv":…}` 到 `MpWebConsole`，可直接
+  `adb logcat -s MpWebConsole` 看站点拿到的真实视口数值，不必再猜。
+- `browser.preload` 语义澄清：只**登记 URL**，加载推迟到切到该标签时（后台标签没有真实尺寸）。
 
 
 - **站点 JS 报错可见**：注入 `error` / `unhandledrejection` 钩子（幂等，`onPageStarted` +

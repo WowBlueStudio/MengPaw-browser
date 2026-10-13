@@ -30,6 +30,7 @@ import com.mengpaw.browser.util.PdfUtil
 import com.mengpaw.browser.web.applyUserAgent
 import com.mengpaw.browser.web.createWebView
 import com.mengpaw.browser.web.loadWhenLaidOut
+import com.mengpaw.browser.web.loadWhenLaidOut
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -173,11 +174,15 @@ internal fun ColumnScope.BrowserContentArea(
                             // 平板请求桌面版, 手机请求移动版 (已加载页需刷新才重新请求)
                             applyUserAgent(wv, desktopSite)
                             val pending = pendingLoad
-                            if (pending != null && pending.tabId == tab.id && consumedSeq.value != pending.seq) {
-                                // 待办导航优先 (语义不变): 命中即立即加载并消费
+                            if (pending != null && pending.tabId == tab.id &&
+                                consumedSeq.value != pending.seq && isActive
+                            ) {
+                                // 待办导航优先 —— 但**只在该标签已激活（有真实尺寸）时消费**：
+                                // 否则会重演「0 高度下加载 ⇒ 站点首屏算成矮条」（含 browser.preload
+                                // 指向后台标签的情形；此时请求保持待办，切到该标签时再真正加载）。
                                 consumedSeq.value = pending.seq
                                 initialLoadIssued.add(tab.id)
-                                wv.loadUrl(pending.url)
+                                wv.loadWhenLaidOut(pending.url)
                                 onPendingLoadConsumed()
                             } else if (isActive && tab.id !in initialLoadIssued &&
                                 pending?.tabId != tab.id &&
