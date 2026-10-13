@@ -76,7 +76,27 @@
 
 ### 发行
 
-- 详见文末"### 发行"节（APK/签名/测试数）
+- APK: `mengpaw-browser-v0.10.3-release.apk` — versionCode **1003**（由 versionName 派生：
+  `0.10.3 → 0*10000 + 10*100 + 3`），签名 `CN=MengPaw, OU=Studio, O=WowBlue`
+  （`apksigner --print-certs` + `aapt2 dump badging` 双复核；1003 > 上一版字面量 18，更新链路可识别）
+- plugins.json: 无变更（浏览器独立仓库不含插件市场）
+- 测试: `:mengpaw-browser:testDebugUnitTest` **69 用例全绿**（32 → 69）
+  - SmartNavigateTest 19 / AdBlockerTest 13 / PdfUtilTest 11 / DownloadUtilTest 11 /
+    StringListCodecTest 11 / **CommandSurfaceTest 4（新增守护）**
+- 审计口径: 三层二十一问（认知/逻辑/基础设施各 1 代理）+ 九维审查（A/B/C/D 四分区）+
+  P0/P1 对抗验证；本轮修复 in-repo 缺口，跨仓项另列（见下）
+- 跨仓待办（本会话不改主仓库，留给 Shell 会话）：
+  ① `mengpaw-kernel/.../agent/AgentCliDocTables.kt:36-41` 仍列已退役的 `browser.batch`/`browser.q`，
+     且该文件不在 `PromptGhostReferenceTest` 的扫描清单内；
+  ② `plugins/plugin-skill` 的 5 份浏览器技能文档仍是旧版（手册同步需随 Shell 侧进行）；
+  ③ `kernel/security/CommandMonitor.kt:264` 的 `takeWhile { !it.startsWith("--") }` 只在
+     **未加引号**传参时截断 payload（文档推荐的引号形态不受影响）—— 建议加注释/测试固化该约定；
+  ④ 已退役 9880 桥/MCP 开放模式在 Shell 侧文档的清理（v0.9.0 起登记，尚未执行）
+- 遗留（已评估、本轮不改，理由随附）：AndroidManifest 里 exported `BrowserActivity` 的
+  `file://` 打开面（Android 7+ 发送方会被 FileUriExposedException 拦住，且文件内容不经通道回传，
+  风险低于审计判断；收窄 intent-filter 会破坏「文件管理器打开 .md/.pdf」的既有入口）；
+  `AndroidView.update` 内写 Compose 状态（待办导航消费点的取舍，已加 seq 去重）；
+  无 androidTest/仪器测试（本机无设备）。
 
 ## v0.10.2 (2026-10-13) — 地址栏转到修复 + 网站打不开修复 + 控件/按键普查
 
