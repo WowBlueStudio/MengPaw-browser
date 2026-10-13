@@ -55,6 +55,9 @@ fun BrowserApp(
     // 平板判据用**最小宽度**（Android 官方口径）: 手机横屏 screenWidthDp 也会 ≥600,
     // 按宽度判会把手机横屏当成平板 → 误请求桌面版网页。
     val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
+    // 站点形态: auto 按设备类别, 也可在设置里强制桌面版/移动版（累计修改）
+    var uaMode by remember { mutableStateOf(prefs.uaMode) }
+    val desktopSite = uaMode.resolveDesktopSite(isTablet)
     val maxTabs = 5
     // Scroll-aware toolbar animation
     var scrollOffset by remember { mutableStateOf(0) }
@@ -311,7 +314,7 @@ fun BrowserApp(
                 activeTabId = activeTabId,
                 webViewMap = webViewMap,
                 isWide = isWide,
-                desktopSite = isTablet,
+                desktopSite = desktopSite,
                 adBlockEnabled = { adBlockEnabled },
                 autoInjectBridge = { autoInjectBridge },
                 searchQuery = searchQuery,
@@ -368,6 +371,8 @@ fun BrowserApp(
                     }
                 },
                 searchEngine = searchEngine, onDefaultEngineChanged = { searchEngine = it },
+                // 站点形态（桌面版/移动版）开关（累计修改）: 切换后对已建 WebView 立即改 UA, 刷新生效
+                uaMode = uaMode, onUaModeChanged = { uaMode = it; prefs.uaMode = it },
                 onOpenCoolApk = {
                     val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.coolapk.com/apk/com.google.android.webview"))
                     try { ctx.startActivity(intent) } catch (_: Exception) { }

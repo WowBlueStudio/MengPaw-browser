@@ -28,6 +28,153 @@ import com.mengpaw.design.theme.ArcoTheme
  * Agent 控制统一走 am 桥 (RunCommandService)。
  */
 class BrowserActivity : ComponentActivity() {
+
+    // ── 累计修改（站点兼容性）: 文件选择 / 全屏视频 / 运行时权限 三处宿主能力 ──
+
+    /** 站点 `<input type=file>` 待回填的回调（一次一个）。 */
+    private var pendingFileCallback: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+
+    /** ActivityResult 启动器必须在 STARTED 之前注册 —— 字段初始化即注册。 */
+    private val fileChooserLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val cb = pendingFileCallback
+        pendingFileCallback = null
+        cb?.onReceiveValue(
+            android.webkit.WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        )
+    }
+
+    /** 站点请求的运行时权限 → 一次性回调（把结果转成"是否全部授予"）。 */
+    private var pendingPermissionCallback: ((Boolean) -> Unit)? = null
+
+    /** 全屏视频宿主（添加在内容视图之上，退出时移除）。 */
+    private var fullscreenView: android.view.View? = null
+    private var fullscreenContainer: android.widget.FrameLayout? = null
+    private var fullscreenCallback: android.webkit.WebChromeClient.CustomViewCallback? = null
+
+    /** 当前是否处于全屏视频（WebView 侧避免重复进入）。 */
+    internal fun isFullscreenActive(): Boolean = fullscreenView != null
+
+    /**
+     * 站点 `<input type=file>` / 上传按钮 → 系统文件选择器。
+     * 未实现时任何"上传图片/附件"按钮点了毫无反应（Edge/Chrome 均支持）。
+     */
+    internal fun launchFileChooser(
+        params: android.webkit.WebChromeClient.FileChooserParams,
+        cb: android.webkit.ValueCallback<Array<android.net.Uri>>
+    ): Boolean {
+        return try {
+            pendingFileCallback?.onReceiveValue(null)
+            pendingFileCallback = cb
+            fileChooserLauncher.launch(params.createIntent())
+            true
+        } catch (e: Exception) {
+            pendingFileCallback = null
+            Toast.makeText(this, "无法打开文件选择器: ${e.message}", Toast.LENGTH_SHORT).show()
+            false
+        }
+    }
+
+    /** 站点请求运行时权限（摄像头/麦克风/定位）→ 系统授权弹窗。 */
+    internal fun requestRuntimePermissions(perms: Array<String>, onResult: (Boolean) -> Unit) {
+        val missing = perms.filter {
+            checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) { onResult(true); return }
+        // 系统同一时刻只处理一个权限请求：若已有在飞，明确拒绝后来者，
+        // 否则覆盖回调会让后一个站点的 Promise 永久 pending（审查 P2-6）
+        if (pendingPermissionCallback != null) {
+            android.util.Log.w("BrowserActivity", "已有权限请求在飞，直接拒绝本次请求")
+            onResult(false)
+            return
+        }
+        pendingPermissionCallback = onResult
+        try {
+            requestPermissions(missing.toTypedArray(), REQ_SITE_PERMISSIONS)
+        } catch (_: Exception) {
+            pendingPermissionCallback = null
+            onResult(false)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_SITE_PERMISSIONS) return
+        val granted = grantResults.isNotEmpty() &&
+            grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }
+        val cb = pendingPermissionCallback
+        pendingPermissionCallback = null
+        cb?.invoke(granted)
+    }
+
+    /** 进入全屏视频（站点 `video.requestFullscreen()` / WebChromeClient.onShowCustomView）。 */
+    internal fun enterFullscreen(
+        view: android.view.View,
+        callback: android.webkit.WebChromeClient.CustomViewCallback? = null
+    ) {
+        // 已在全屏: 通知本次回调已隐藏（否则 WebView 侧状态与页面对不上 —— 审查 P2-8）
+        if (fullscreenView != null) { callback?.onCustomViewHidden(); return }
+        val parent = window.decorView as? android.view.ViewGroup
+        if (parent == null) { callback?.onCustomViewHidden(); return }
+        val container = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(android.graphics.Color.BLACK)
+            addView(view, android.widget.FrameLayout.LayoutParams(-1, -1))
+        }
+        try {
+            parent.addView(container, android.view.ViewGroup.LayoutParams(-1, -1))
+        } catch (e: Exception) {
+            android.util.Log.e("BrowserActivity", "全屏容器添加失败", e)
+            callback?.onCustomViewHidden()
+            return
+        }
+        // addView 成功后才置状态（失败时不能留下"看似全屏"的脏状态）
+        fullscreenContainer = container
+        fullscreenView = view
+        fullscreenCallback = callback
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 沉浸式: 隐藏状态栏/导航栏（退出时经 WindowInsetsController 恢复）
+        try {
+            androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                .hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } catch (_: Exception) {
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                android.view.View.SYSTEM_UI_FLAG_FULLSCREEN or
+                    android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                    android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                )
+        }
+    }
+
+    /** 退出全屏视频（幂等: 可被返回键/onHideCustomView/onDestroy 多次调用）。 */
+    internal fun exitFullscreen() {
+        val container = fullscreenContainer
+        // 先取走并清空回调，保证幂等且不会重复回调 WebView
+        val callback = fullscreenCallback
+        fullscreenCallback = null
+        fullscreenContainer = null
+        val hadView = fullscreenView != null
+        fullscreenView = null
+        if (container != null) {
+            try { (container.parent as? android.view.ViewGroup)?.removeView(container) } catch (_: Exception) {}
+        }
+        if (hadView) {
+            try { callback?.onCustomViewHidden() } catch (_: Exception) {}
+            window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            try {
+                androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+                    .show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            } catch (_: Exception) {
+                @Suppress("DEPRECATION")
+                window.decorView.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+            }
+            enableEdgeToEdge()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DataPathsInitializer.initialize(this)
@@ -193,8 +340,12 @@ class BrowserActivity : ComponentActivity() {
         return if (raw != null && (raw.startsWith("http://") || raw.startsWith("https://"))) raw else null
     }
 
-    /** Back key: delegate to Compose callback which handles tab closing logic. */
+    /** Back key: 全屏视频优先退出, 其次交给 Compose 的标签/历史逻辑。 */
     override fun onBackPressed() {
+        if (fullscreenView != null) {
+            exitFullscreen()
+            return
+        }
         onSystemBack?.invoke() ?: super.onBackPressed()
     }
 
@@ -240,6 +391,9 @@ class BrowserActivity : ComponentActivity() {
     internal var browserState: BrowserStateBridge? = null
 
     companion object {
+        /** 站点运行时权限请求码（摄像头/麦克风/定位）。 */
+        private const val REQ_SITE_PERMISSIONS = 0x4D50
+
         /** 主线程执行（命令线程调用状态桥时必须切回主线程 — WebView/UI 只能在主线程碰）。 */
         private fun onMain(block: () -> Unit) {
             if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) block()
@@ -340,7 +494,15 @@ class BrowserActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        // 复位挂起的站点回调（审查 P1-4）: 不收尾会让站点 getUserMedia/定位 Promise 永久 pending，
+        // 且回调闭包持有 WebView 侧的 PermissionRequest/ValueCallback。
+        try { pendingPermissionCallback?.invoke(false) } catch (_: Exception) {}
+        pendingPermissionCallback = null
+        try { pendingFileCallback?.onReceiveValue(null) } catch (_: Exception) {}
+        pendingFileCallback = null
         super.onDestroy()
+        // 全屏视频宿主先撤（避免持有已销毁 WebView 的父容器）
+        try { exitFullscreen() } catch (_: Exception) {}
         // CRITICAL: Destroy all WebViews to free native renderer memory
         webViewMapRef.values.forEach { destroyWebViewSafe(it) }
         webViewMapRef.clear()

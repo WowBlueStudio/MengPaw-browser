@@ -63,6 +63,15 @@ class BrowserPrefs(ctx: Context) {
         get() = p.getBoolean("dark_mode", false)
         set(v) = p.edit().putBoolean("dark_mode", v).apply()
 
+    /**
+     * 站点形态偏好（累计修改）: auto = 平板请求桌面版 / 手机请求移动版；
+     * 可强制 desktop / mobile —— 站点差异大（有的桌面版在平板上更糟/移动版缺功能），
+     * 让用户一键覆盖，不必等我们改代码出包。
+     */
+    var uaMode: UaMode
+        get() = UaMode.fromKey(p.getString("ua_mode", UaMode.AUTO.key))
+        set(v) = p.edit().putString("ua_mode", v.key).apply()
+
     // ── Bookmarks ──
 
     /**

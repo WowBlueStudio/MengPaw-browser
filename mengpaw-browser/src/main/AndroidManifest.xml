@@ -6,6 +6,21 @@
     <!-- 半自动武器方案决策 #2: 截图/输出落盘公共目录 (MengPaw/截图存档), 供 Shell 侧 Agent 读取 -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
+    <!--
+      累计修改（站点兼容性）: 站点功能所需的运行时权限。
+      这些权限**只在站点主动请求时才弹窗**（onPermissionRequest / onGeolocationPermissionsShowPrompt），
+      启动时不申请；拒绝则对应站点能力降级（与 Edge/Chrome 行为一致）。
+    -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+
     <!-- 半自动武器方案 Phase 2: am 桥调用权限 (signature 级, 仅同签名 Shell 可调) -->
     <permission
         android:name="com.mengpaw.permission.RUN_BROWSER_COMMAND"

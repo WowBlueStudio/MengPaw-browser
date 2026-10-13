@@ -33,6 +33,9 @@ fun BrowserSettingsDialog(
     onDarkModeToggled: (Boolean) -> Unit,
     searchEngine: SearchEngine,
     onDefaultEngineChanged: (SearchEngine) -> Unit,
+    /** 站点形态偏好（累计修改）: auto / desktop / mobile */
+    uaMode: com.mengpaw.browser.data.UaMode = com.mengpaw.browser.data.UaMode.AUTO,
+    onUaModeChanged: (com.mengpaw.browser.data.UaMode) -> Unit = {},
     webViewVersion: String = "",
     /** 浏览器自身版本 — 报障/自测时需要, 旧版本无任何入口可见 */
     appVersion: String = "",
@@ -92,6 +95,37 @@ fun BrowserSettingsDialog(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("暗色模式")
                         Switch(checked = darkMode, onCheckedChange = onDarkModeToggled)
+                    }
+                }
+                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+                // 站点形态（累计修改）: 站点差异大，给用户一键覆盖；切换后刷新生效
+                item {
+                    Column {
+                        Text("网站版本", fontWeight = FontWeight.Medium)
+                        Text(
+                            "默认：平板请求桌面版、手机请求移动版。站点不适配时可强制切换（刷新生效）。",
+                            style = MaterialTheme.typography.labelSmall, color = ThemeColors.textSecondary
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            com.mengpaw.browser.data.UaMode.entries.forEach { mode ->
+                                val selected = mode == uaMode
+                                FilterChip(
+                                    selected = selected,
+                                    onClick = { if (!selected) onUaModeChanged(mode) },
+                                    label = {
+                                        Text(
+                                            when (mode) {
+                                                com.mengpaw.browser.data.UaMode.AUTO -> "自动"
+                                                com.mengpaw.browser.data.UaMode.DESKTOP -> "桌面版"
+                                                com.mengpaw.browser.data.UaMode.MOBILE -> "移动版"
+                                            },
+                                            fontSize = 12.sp
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
                 item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }

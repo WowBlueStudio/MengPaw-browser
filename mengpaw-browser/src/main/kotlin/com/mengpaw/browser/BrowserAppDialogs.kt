@@ -58,6 +58,8 @@ internal fun BrowserAppDialogs(
     adBlockEnabled: Boolean, onAdBlockToggled: (Boolean) -> Unit,
     darkMode: Boolean, onDarkModeToggled: (Boolean) -> Unit,
     searchEngine: SearchEngine, onDefaultEngineChanged: (SearchEngine) -> Unit,
+    /** 站点形态偏好（桌面版/移动版）与回调（累计修改） */
+    uaMode: com.mengpaw.browser.data.UaMode, onUaModeChanged: (com.mengpaw.browser.data.UaMode) -> Unit,
     onOpenCoolApk: () -> Unit, onOpenApkCombo: () -> Unit,
     // ── Agent Collaboration Settings ──
     showAgentSettings: Boolean, onDismissAgentSettings: () -> Unit,
@@ -99,6 +101,8 @@ internal fun BrowserAppDialogs(
         onDarkModeToggled = onDarkModeToggled,
         searchEngine = searchEngine,
         onDefaultEngineChanged = onDefaultEngineChanged,
+        uaMode = uaMode,
+        onUaModeChanged = onUaModeChanged,
         webViewVersion = remember {
             try { WebView.getCurrentWebViewPackage()?.versionName ?: "" } catch (_: Exception) { "" }
         },

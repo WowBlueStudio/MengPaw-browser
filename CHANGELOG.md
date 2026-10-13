@@ -38,7 +38,30 @@
   现在用一次性探针 WebView 取到真实 URL 后**开新标签**（与 Chrome 行为一致）；
   达标签上限时给出 Toast 而不是静默丢弃。
 
-### 新增（兼容性诊断能力）
+### 新增（兼容性能力补齐 — 对齐 Edge/Chrome）
+
+- **文件上传**：实现 `WebChromeClient.onShowFileChooser` + `ActivityResultContracts` 启动器
+  （`BrowserActivity.launchFileChooser`）—— 此前站点任何"上传图片/附件"按钮点了毫无反应。
+- **摄像头 / 麦克风**：实现 `onPermissionRequest`（`getUserMedia`）→ 按需申请
+  `CAMERA`/`RECORD_AUDIO` 运行时权限后再 `grant`；非摄录类资源（MIDI 等）直接授予。
+- **定位**：实现 `onGeolocationPermissionsShowPrompt` → 申请 `ACCESS_FINE/COARSE_LOCATION`
+  后按结果 `invoke(origin, granted, retain=false)`（不长期记住，避免静默追踪）。
+- **视频全屏**：实现 `onShowCustomView` / `onHideCustomView` + `BrowserActivity.enterFullscreen/
+  exitFullscreen`（黑底全屏容器 + 沉浸式 + 返回键优先退出；`onDestroy` 清理）—— 此前全屏按钮无效。
+- **文件下载**：新增 `setDownloadListener` → 系统 `DownloadManager` 落到公共下载目录
+  （带 Cookie/UA、通知栏进度、Toast 反馈），并顺带清除加载态 —— 此前"下载尺寸表/说明书"
+  类按钮点了没反应，还会把加载指示器留在转圈。
+- **站点形态开关（桌面版/移动版）**：设置里新增三选一（自动 / 始终桌面版 / 始终移动版，
+  `data/UaMode.kt` + `UaModeTest`）。默认"自动"= 平板桌面版、手机移动版；站点不适配时
+  用户可一键覆盖、刷新生效，不必等发版。
+
+### 修复（当前正在处理：Trek 首页 100vh 首屏挤成"窄条"）
+
+- 已定位根因方向（社区已知类问题）：**页面在 WebView 尚未布局（尺寸 0×0）时就开始加载**，
+  站点按 0 高度算出整屏 hero 高度并缓存；另有**非激活标签以 `height(0.dp)` 排布却仍加载 URL**，
+  同样在 0 高度下完成首屏计算。修复项（`loadWhenLaidOut` + 非激活标签懒加载）由并行子会话落地中，
+  落地后在此补记。
+
 
 - **站点 JS 报错可见**：注入 `error` / `unhandledrejection` 钩子（幂等，`onPageStarted` +
   `onPageFinished` 双注入），并经 `WebChromeClient.onConsoleMessage` 把 WARNING 以上打到
