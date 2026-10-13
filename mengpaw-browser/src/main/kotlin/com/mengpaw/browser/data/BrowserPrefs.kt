@@ -64,9 +64,16 @@ class BrowserPrefs(ctx: Context) {
         set(v) = p.edit().putBoolean("dark_mode", v).apply()
 
     // ── Bookmarks ──
+
+    /**
+     * 书签 URL 列表。
+     * v0.10.3 P0 修复: 旧实现用 `joinToString(",")` 落盘, URL 查询串里的 `,`
+     * 会在下次读取时把一条书签拆成两条垃圾, `isBookmarked`/`removeBookmark` 永久失效。
+     * 现读写两侧都走 [StringListCodec]; 读取对老逗号数据保持兼容 (legacySeparator = ',')。
+     */
     var bookmarks: List<String>
-        get() = (p.getString("bookmarks", "") ?: "").split(",").filter { it.isNotBlank() }
-        set(v) = p.edit().putString("bookmarks", v.joinToString(",")).apply()
+        get() = StringListCodec.decode(p.getString("bookmarks", null), ',')
+        set(v) = p.edit().putString("bookmarks", StringListCodec.encode(v)).apply()
 
     fun addBookmark(url: String) { val list = bookmarks.toMutableList(); if (url !in list) { list.add(0, url); bookmarks = list } }
 
@@ -75,9 +82,11 @@ class BrowserPrefs(ctx: Context) {
     fun isBookmarked(url: String): Boolean = url in bookmarks
 
     // ── Tab session persistence ──
+
+    /** 标签会话 URL 列表。v0.10.3 P0 修复: 同 [bookmarks], 旧竖线分隔读取兼容 (legacySeparator = '|')。 */
     var savedTabUrls: List<String>
-        get() = (p.getString("tab_urls", "") ?: "").split("|").filter { it.isNotBlank() }
-        set(v) = p.edit().putString("tab_urls", v.joinToString("|")).apply()
+        get() = StringListCodec.decode(p.getString("tab_urls", null), '|')
+        set(v) = p.edit().putString("tab_urls", StringListCodec.encode(v)).apply()
 
     var savedActiveTabId: Int
         get() = p.getInt("active_tab_id", -1)
