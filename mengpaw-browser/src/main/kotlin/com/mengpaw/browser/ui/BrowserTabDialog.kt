@@ -20,7 +20,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.design.theme.ThemeColors
 
@@ -32,7 +31,7 @@ fun BrowserTabDialog(
     tabs: List<TabState>,
     activeTabId: Int,
     webViewMap: Map<Int, WebView>,
-    prefs: BrowserPrefs,
+    onAddBookmark: (String) -> Unit,
     onTabSelected: (Int, Boolean) -> Unit,  // (tabId, isColdStart)
     onTabClose: (Int) -> Unit,
     onNewTab: () -> Unit,
@@ -87,11 +86,18 @@ fun BrowserTabDialog(
                                             putExtra("url", tab.url)
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                                         }
-                                        try { ctx.startActivity(intent) } catch (_: Exception) { }
+                                        // P2 修复: 旧实现空 catch 吞异常 — Shell 未装时点了没任何反馈
+                                        try {
+                                            ctx.startActivity(intent)
+                                        } catch (_: Exception) {
+                                            android.widget.Toast.makeText(
+                                                ctx, "MengPaw 未安装", android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
                                         showMenu = false
                                     })
                                     DropdownMenuItem(text = { Text("强制刷新") }, onClick = { webViewMap[tab.id]?.reload(); showMenu = false })
-                                    DropdownMenuItem(text = { Text("添加收藏") }, onClick = { prefs.addBookmark(tab.url); showMenu = false })
+                                    DropdownMenuItem(text = { Text("添加收藏") }, onClick = { onAddBookmark(tab.url); showMenu = false })
                                 }
                             }
                         }

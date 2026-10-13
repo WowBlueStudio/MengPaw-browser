@@ -14,7 +14,6 @@ import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,8 +21,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.DetectedImage
+import com.mengpaw.browser.data.PendingLoad
 import com.mengpaw.browser.data.SearchEngine
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.ui.NewTabPage
@@ -37,6 +36,11 @@ import kotlinx.coroutines.withContext
  * 浏览器主内容区（自 BrowserApp 拆出 — 400 行文件拆分批次 2）。
  * 冷启动 NewTabPage / 常态 WebView 多标签渲染 (pre-render + visibility-toggle)。
  *
+ * v0.10.2 修复:
+ * ① [pendingLoad] 消费 — 用户导航在 WebView 尚未就绪时不再静默丢失 (转不到的问题);
+ * ② 广告拦截/桥接注入改为**动态读取** (lambda) — 设置里切换后无需重建 WebView;
+ * ③ 激活标签的 WebView 恢复 resume 状态 (后台 onTrimMemory 曾整体 onPause, 不 resume 可能不再渲染)。
+ *
  * @param onScroll 滚动偏移回调 (工具栏动画)
  * @param onShowMarkdown 站内 .md URL 拉取成功后的展示回调 (BrowserApp 注入 mdContent/showMdViewer)
  */
@@ -49,21 +53,32 @@ internal fun ColumnScope.BrowserContentArea(
     activeTabId: Int,
     webViewMap: MutableMap<Int, WebView>,
     isWide: Boolean,
-    adBlockEnabled: Boolean,
-    autoInjectBridge: Boolean,
+    adBlockEnabled: () -> Boolean,
+    autoInjectBridge: () -> Boolean,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     searchEngine: SearchEngine,
     onSearchEngineCycle: () -> Unit,
-    prefs: BrowserPrefs,
+    /** 收藏夹 state (新标签页快捷入口) */
+    bookmarks: List<String>,
     updateTab: (Int, (TabState) -> TabState) -> Unit,
     onImagesDetected: (List<DetectedImage>) -> Unit,
     onScroll: (Int) -> Unit,
     onNavigate: (String) -> Unit,
     onShowBookmarks: () -> Unit,
     onShowMarkdown: (String) -> Unit,
-    onShowPdf: (String, String) -> Unit
+    onShowPdf: (String, String) -> Unit,
+    pendingLoad: PendingLoad? = null,
+    onPendingLoadConsumed: () -> Unit = {}
 ) {
+    // 激活标签必须处于 resume 态: onTrimMemory 会对所有 WebView onPause, 而本应用此前
+    // 从不 onResume — 页面加载后可能停止渲染 (表现为「点了没反应」)。
+    LaunchedEffect(activeTabId, tabs.size, isColdStart) {
+        if (!isColdStart) {
+            try { webViewMap[activeTabId]?.onResume() } catch (_: Exception) { }
+        }
+    }
+
     if (isColdStart) {
         NewTabPage(
             searchQuery = searchQuery,
@@ -71,7 +86,7 @@ internal fun ColumnScope.BrowserContentArea(
             searchEngine = searchEngine,
             onSearchEngineCycle = onSearchEngineCycle,
             isWide = isWide,
-            prefs = prefs,
+            bookmarks = bookmarks,
             onNavigate = onNavigate,
             onShowBookmarks = onShowBookmarks
         )
@@ -98,6 +113,10 @@ internal fun ColumnScope.BrowserContentArea(
                     }
                 }
             }
+            // 已消费的待办导航序号 — update 块可能因重组被多次调用, 用序号去重避免重复导航
+            val consumedSeq = androidx.compose.runtime.remember {
+                androidx.compose.runtime.mutableStateOf(-1L)
+            }
             tabs.forEach { tab ->
                 val isActive = tab.id == activeTabId
                 androidx.compose.runtime.key(tab.id) {
@@ -106,14 +125,27 @@ internal fun ColumnScope.BrowserContentArea(
                             val wv = webViewMap[tab.id]
                             if (wv != null) wv
                             else createWebView(
-                                ctx, tab, isWide, adBlockEnabled, autoInjectBridge, updateTab,
-                                onImagesDetected,
+                                ctx, tab, isWide,
+                                adBlock = adBlockEnabled,
+                                autoInject = autoInjectBridge,
+                                updateTab = updateTab,
+                                onMediaDetected = onImagesDetected,
                                 onScroll = onScroll,
                                 onMarkdownDetected = { url -> fetchMarkdownUrl(url) },
-                                onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) }
+                                onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) },
+                                // 有待办导航时构造期不加载, 交给 update 统一消费 (避免重复导航)
+                                loadInitialUrl = pendingLoad?.tabId != tab.id
                             )
                         },
-                        update = { wv -> webViewMap[tab.id] = wv },
+                        update = { wv ->
+                            webViewMap[tab.id] = wv
+                            val pending = pendingLoad
+                            if (pending != null && pending.tabId == tab.id && consumedSeq.value != pending.seq) {
+                                consumedSeq.value = pending.seq
+                                wv.loadUrl(pending.url)
+                                onPendingLoadConsumed()
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (isActive) Modifier else Modifier.alpha(0f).height(0.dp))

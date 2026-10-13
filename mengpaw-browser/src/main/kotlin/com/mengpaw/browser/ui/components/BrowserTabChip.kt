@@ -49,9 +49,13 @@ fun TabChip(
                     Icon(Icons.Default.MoreVert, "菜单", modifier = Modifier.size(14.dp), tint = ThemeColors.textSecondary)
                 }
             }
-            Spacer(Modifier.width(2.dp))
-            IconButton(onClick = onClose ?: onClick, modifier = Modifier.size(16.dp)) {
-                Icon(Icons.Default.Close, "关闭", modifier = Modifier.size(12.dp), tint = ThemeColors.textSecondary)
+            // v0.10.2 修复: onClose 为 null (只剩一个标签) 时不再渲染 X —
+            // 旧实现回落到 onClick, 点「关闭」变成切换标签, 是误导性控件
+            if (onClose != null) {
+                Spacer(Modifier.width(2.dp))
+                IconButton(onClick = onClose, modifier = Modifier.size(16.dp)) {
+                    Icon(Icons.Default.Close, "关闭", modifier = Modifier.size(12.dp), tint = ThemeColors.textSecondary)
+                }
             }
         }
     }

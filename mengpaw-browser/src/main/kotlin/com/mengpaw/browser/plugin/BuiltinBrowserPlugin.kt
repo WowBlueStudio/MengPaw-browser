@@ -56,8 +56,7 @@ class BuiltinBrowserPlugin(
         BrowserPlaywrightCommands(ctx).commands
 
     companion object {
-        /** Providers set by BrowserActivity for toggle-aware command execution. */
-        @JvmStatic var quickClickEnabled: () -> Boolean = { true }
+        /** Screenshot height provider set by BrowserActivity (page.screenshot --full 分段上限)。 */
         @JvmStatic var screenshotMaxHeight: () -> Int = { 15000 }
 
         /** am 桥共享实例 — BrowserActivity 初始化，RunCommandService 复用（半自动武器 Phase 2）。 */

@@ -15,23 +15,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.design.theme.ThemeColors
 
-/** Agent collaboration settings: Quick Click, auto-inject bridge, screenshot config. */
+/**
+ * Agent 协同设置: 自动注入桥接 + 全页截图最大高度。
+ *
+ * v0.10.2 清理无效控件 (旧实为只写不读的假开关/假滑杆):
+ * ① 「快速点击」——`BuiltinBrowserPlugin.quickClickEnabled` 全仓库无读取点, 开关无效果, 已删;
+ * ② 「截图质量」——`prefs.screenshotQuality` 无读取点, 且截图固定 PNG (PNG 无损, quality 参数
+ *   被忽略), 已删 (若将来支持 JPEG 再随实现一起恢复)。
+ */
 @Composable
 fun BrowserAgentSettingsDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
-    prefs: BrowserPrefs,
-    quickClickEnabled: Boolean,
     autoInjectBridge: Boolean,
     screenshotMaxH: Int,
-    screenshotQuality: Int,
-    onQuickClickToggled: (Boolean) -> Unit,
     onAutoInjectToggled: (Boolean) -> Unit,
-    onScreenshotMaxHChanged: (Int) -> Unit,
-    onScreenshotQualityChanged: (Int) -> Unit
+    onScreenshotMaxHChanged: (Int) -> Unit
 ) {
     if (!visible) return
 
@@ -40,30 +41,17 @@ fun BrowserAgentSettingsDialog(
         title = { Text("智能体协同设置") },
         text = {
             LazyColumn {
-                // Section: Quick Click (experimental)
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Star, null, Modifier.size(16.dp), tint = ThemeColors.brand)
                         Spacer(Modifier.width(4.dp))
-                        Text("实验性功能", style = MaterialTheme.typography.labelLarge, color = ThemeColors.brand, fontWeight = FontWeight.Bold)
+                        Text("Agent 控制", style = MaterialTheme.typography.labelLarge, color = ThemeColors.brand, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(4.dp))
                     Text("使用全页截图 + 坐标点击替代 CSS 选择器。Vision 模型友好，对 Canvas/Shadow DOM/验证码有效。",
                         style = MaterialTheme.typography.bodySmall, color = ThemeColors.textSecondary)
                     Spacer(Modifier.height(12.dp))
                 }
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("快速点击", fontWeight = FontWeight.Medium)
-                            Text("page.load / page.screenshot --full + page.click", style = MaterialTheme.typography.labelSmall, color = ThemeColors.textSecondary)
-                        }
-                        Switch(checked = quickClickEnabled, onCheckedChange = onQuickClickToggled)
-                    }
-                }
-                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
-
-                // Section: Auto-inject bridge
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -75,7 +63,7 @@ fun BrowserAgentSettingsDialog(
                 }
                 item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
 
-                // Section: Screenshot quality
+                // Section: Screenshot max height
                 item {
                     Text("全页截图最大高度", fontWeight = FontWeight.Medium)
                     Text("${screenshotMaxH}px (更大=更完整, 更小=更快)", style = MaterialTheme.typography.labelSmall, color = ThemeColors.textSecondary)
@@ -88,21 +76,9 @@ fun BrowserAgentSettingsDialog(
                         colors = SliderDefaults.colors(thumbColor = ThemeColors.brand, activeTrackColor = ThemeColors.brand)
                     )
                 }
-                item {
-                    Text("截图质量", fontWeight = FontWeight.Medium)
-                    Text("${screenshotQuality}% (更低=文件更小)", style = MaterialTheme.typography.labelSmall, color = ThemeColors.textSecondary)
-                    Spacer(Modifier.height(4.dp))
-                    Slider(
-                        value = screenshotQuality.toFloat(),
-                        onValueChange = { onScreenshotQualityChanged(it.toInt()) },
-                        valueRange = 30f..100f,
-                        steps = 6,
-                        colors = SliderDefaults.colors(thumbColor = ThemeColors.brand, activeTrackColor = ThemeColors.brand)
-                    )
-                }
                 item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
 
-                // Quick Click workflow tips
+                // Workflow tips
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Outlined.Info, null, Modifier.size(16.dp), tint = ThemeColors.textSecondary)

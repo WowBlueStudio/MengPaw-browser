@@ -46,11 +46,6 @@ class BrowserPrefs(ctx: Context) {
 
     // ── Agent Collaboration Settings ──
 
-    /** Quick Click: full-page screenshot + coordinate taps (experimental, default ON) */
-    var quickClickEnabled: Boolean
-        get() = p.getBoolean("quick_click", true)
-        set(v) = p.edit().putBoolean("quick_click", v).apply()
-
     /** Auto-inject the __mp bridge on every page load for faster commands */
     var autoInjectBridge: Boolean
         get() = p.getBoolean("auto_inject", true)
@@ -60,11 +55,9 @@ class BrowserPrefs(ctx: Context) {
     var screenshotMaxHeight: Int
         get() = p.getInt("screenshot_max_h", 15000).coerceIn(5000, 30000)
         set(v) = p.edit().putInt("screenshot_max_h", v.coerceIn(5000, 30000)).apply()
-
-    /** Screenshot JPEG quality percentage (for full-page, lower = smaller file) */
-    var screenshotQuality: Int
-        get() = p.getInt("screenshot_quality", 85).coerceIn(30, 100)
-        set(v) = p.edit().putInt("screenshot_quality", v.coerceIn(30, 100)).apply()
+    // 注意 (v0.10.2): quickClickEnabled / screenshotQuality 两个 pref 已删除 —
+    // 全仓库无读取点 (截图固定 PNG, quality 参数被忽略), 设置里的对应控件一并移除,
+    // 避免出现「点了没反应」的假开关。
 
     var darkMode: Boolean
         get() = p.getBoolean("dark_mode", false)

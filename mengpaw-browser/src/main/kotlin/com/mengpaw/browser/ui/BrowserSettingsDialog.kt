@@ -34,12 +34,13 @@ fun BrowserSettingsDialog(
     searchEngine: SearchEngine,
     onDefaultEngineChanged: (SearchEngine) -> Unit,
     webViewVersion: String = "",
+    /** 浏览器自身版本 — 报障/自测时需要, 旧版本无任何入口可见 */
+    appVersion: String = "",
     onOpenCoolApk: (() -> Unit)? = null,
     onOpenApkCombo: (() -> Unit)? = null
 ) {
     if (!visible) return
 
-    val engines = prefs.enabledEngines()
     val engineKeys = remember { mutableStateListOf(*prefs.engineKeys.toTypedArray()) }
 
     AlertDialog(
@@ -91,6 +92,13 @@ fun BrowserSettingsDialog(
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text("暗色模式")
                         Switch(checked = darkMode, onCheckedChange = onDarkModeToggled)
+                    }
+                }
+                item { HorizontalDivider(Modifier.padding(vertical = 8.dp)) }
+                item {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("浏览器版本", style = MaterialTheme.typography.labelMedium)
+                        Text(appVersion.ifBlank { "—" }, style = MaterialTheme.typography.labelMedium, color = ThemeColors.textSecondary)
                     }
                 }
                 if (webViewVersion.isNotBlank()) {

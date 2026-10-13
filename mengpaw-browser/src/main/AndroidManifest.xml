@@ -11,11 +11,18 @@
         android:name="com.mengpaw.permission.RUN_BROWSER_COMMAND"
         android:protectionLevel="signature" />
 
+    <!--
+      P0 修复 (v0.10.2): 浏览器必须能打开明文 http:// 站点。
+      targetSdk 35 下 usesCleartextTraffic 默认 false → WebView 对 http:// 直接返回
+      net::ERR_CLEARTEXT_NOT_PERMITTED, 表现为「部分网站打不开」(如 http://47.119.135.155/home)。
+      Chrome 等系统浏览器同样显式置 true — 是否访问明文站点由用户/网站决定, 不由宿主一刀切。
+    -->
     <application
         android:allowBackup="false"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
@@ -23,6 +30,7 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout">
             <!-- Launcher -->
             <intent-filter>

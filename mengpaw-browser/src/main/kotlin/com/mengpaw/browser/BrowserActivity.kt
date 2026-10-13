@@ -35,8 +35,8 @@ class BrowserActivity : ComponentActivity() {
         // 9880 HTTP 桥已退役 (半自动武器决策 #7): Agent 控制统一走 am 桥 (RunCommandService,
         // signature 权限), 无 token/开放模式/HTTP server。
         val prefs = BrowserPrefs(this)
-        // Bind Quick Click toggle and screenshot settings to BuiltinBrowserPlugin
-        com.mengpaw.browser.plugin.BuiltinBrowserPlugin.quickClickEnabled = { prefs.quickClickEnabled }
+        // Bind screenshot settings to BuiltinBrowserPlugin
+        // (v0.10.2: 移除 quickClick 接线 — 该开关全链路无读取点, 属无效控件)
         com.mengpaw.browser.plugin.BuiltinBrowserPlugin.screenshotMaxHeight = { prefs.screenshotMaxHeight }
         // am 桥共享实例（Phase 2）— RunCommandService 经 signature 权限调用同一命令引擎
         com.mengpaw.browser.plugin.BuiltinBrowserPlugin.shared = builtinBrowserPlugin
@@ -194,6 +194,18 @@ class BrowserActivity : ComponentActivity() {
     /** Back key: delegate to Compose callback which handles tab closing logic. */
     override fun onBackPressed() {
         onSystemBack?.invoke() ?: super.onBackPressed()
+    }
+
+    /**
+     * v0.10.2: 与 [onTrimMemory] 的 onPause 配对恢复。
+     * 旧实现只 onPause 从不 onResume — 一次后台/内存压力后 WebView 可能长期停留暂停态,
+     * 页面继续加载却不再渲染 (用户视角: 转到之后「没反应」)。
+     */
+    override fun onResume() {
+        super.onResume()
+        webViewMapRef.values.forEach { wv ->
+            try { wv.onResume() } catch (_: Exception) {}
+        }
     }
 
     /** Mutable reference to Compose's webViewMap, synced via SideEffect. */

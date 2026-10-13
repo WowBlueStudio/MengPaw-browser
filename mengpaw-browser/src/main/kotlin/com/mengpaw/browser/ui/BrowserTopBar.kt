@@ -3,8 +3,6 @@
 
 package com.mengpaw.browser.ui
 
-import android.content.Intent
-import android.webkit.WebView
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
@@ -21,11 +19,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +46,14 @@ import com.mengpaw.design.tokens.ArcoRadius
  * on wide screens, tab-badge on phone), bookmark star, and the overflow menu.
  *
  * All state mutations are delegated via callbacks so the parent remains the owner.
+ *
+ * v0.10.2 地址栏三处修复 (根因: 转到按钮「没反应」):
+ * ① **获焦全选** — 旧实现点进地址栏只落光标, 新输入的网址拼接在原 URL 后面,
+ *   拼出的地址必然 DNS 失败 (一段时间后跳到「页面加载失败」)。浏览器惯例: 获焦即全选。
+ * ② **编辑中不被页面 URL 覆盖** — 旧 `LaunchedEffect(activeTab.url)` 无条件回写,
+ *   页面重定向/加载完成时会把用户正在输入的内容抹掉。
+ * ③ **提交路径统一** — → 按钮 / 软键盘 Search/Go/Done / 物理回车 都走同一个 submit(),
+ *   提交后清焦点收键盘; 空输入不再静默, 给出提示。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,13 +67,15 @@ fun BrowserTopBar(
     tabs: List<TabState>,
     adBlockEnabled: Boolean,
     isBookmarked: Boolean,
-    webViewMap: MutableMap<Int, WebView>,
+    /** Ctrl+L / 点击地址栏时用于聚焦输入框 (由 BrowserApp 持有) */
+    urlBarFocusRequester: FocusRequester,
     /** 主页 URL — 持久化设置 (BrowserPrefs.homeUrl), 不再硬编码 baidu */
     homeUrl: String = "https://www.baidu.com",
     onNavigate: (String) -> Unit,
     onBack: () -> Unit,
     onShowTabs: () -> Unit,
     onShowBookmarks: () -> Unit,
+    onToggleBookmark: () -> Unit,
     onRefresh: () -> Unit,
     onGoForward: () -> Unit,
     onGoBack: () -> Unit,
@@ -90,15 +105,46 @@ fun BrowserTopBar(
         TopAppBar(
             title = {
                 if (showUrlBar || isWide) {
-                    var editUrl by remember(activeTabId) { mutableStateOf(decodeUrlForDisplay(activeTab.url)) }
-                    // P2 fix: 编辑态跟随页面 URL — remember(activeTabId) 只在 tab 切换时重置,
-                    // 同一 tab 内导航/重定向后地址栏残留用户输入的旧文本 (主域名), 不显示真实完整地址。
-                    // LaunchedEffect(activeTab.url) 在页面 URL 变化时同步 (百分号编码解码为中文显示), 用户输入中不打断。
-                    LaunchedEffect(activeTab.url) { editUrl = decodeUrlForDisplay(activeTab.url) }
+                    var editUrl by remember(activeTabId) {
+                        mutableStateOf(TextFieldValue(decodeUrlForDisplay(activeTab.url)))
+                    }
+                    // 是否处于编辑态 (输入框持有焦点)。编辑中不回写 — 否则页面重定向/加载完成
+                    // 会把用户正在输入的网址替换掉 (P1 修复: 旧实现无条件 LaunchedEffect 回写)。
+                    var editing by remember(activeTabId) { mutableStateOf(false) }
+                    val focusManager = LocalFocusManager.current
+                    LaunchedEffect(activeTab.url) {
+                        if (!editing) editUrl = TextFieldValue(decodeUrlForDisplay(activeTab.url))
+                    }
+                    // 手机: 点地址栏展开输入框后自动聚焦 (省掉第二次点击/键盘自动弹出)
+                    LaunchedEffect(showUrlBar) {
+                        if (showUrlBar) urlBarFocusRequester.requestFocus()
+                    }
+                    val submit = {
+                        if (editUrl.text.isBlank()) {
+                            Toast.makeText(ctx, "请输入网址或搜索关键词", Toast.LENGTH_SHORT).show()
+                        } else {
+                            val target = editUrl.text
+                            editing = false
+                            focusManager.clearFocus()
+                            onNavigate(target)
+                        }
+                    }
                     OutlinedTextField(
                         value = editUrl,
                         onValueChange = { editUrl = it },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                            .focusRequester(urlBarFocusRequester)
+                            .onFocusChanged { state ->
+                                editing = state.isFocused
+                                // 获焦全选 (浏览器惯例): 否则新网址接在旧 URL 后面 → 必然加载失败
+                                if (state.isFocused && editUrl.text.isNotEmpty()) {
+                                    editUrl = editUrl.copy(
+                                        selection = TextRange(0, editUrl.text.length)
+                                    )
+                                }
+                            },
                         singleLine = true,
                         textStyle = MaterialTheme.typography.bodySmall.copy(fontSize = 14.sp),
                         shape = RoundedCornerShape(ArcoRadius.round),
@@ -108,14 +154,20 @@ fun BrowserTopBar(
                         ),
                         keyboardOptions = KeyboardOptions(
                             keyboardType = KeyboardType.Uri,
-                            imeAction = ImeAction.Search
+                            imeAction = ImeAction.Search,
+                            capitalization = KeyboardCapitalization.None,
+                            autoCorrect = false
                         ),
+                        // 三种 IME 动作都归到 submit — 不同输入法给的是 搜索/前往/完成
                         keyboardActions = KeyboardActions(
-                            onSearch = { onNavigate(editUrl) }
+                            onSearch = { submit() },
+                            onGo = { submit() },
+                            onDone = { submit() }
                         ),
                         trailingIcon = {
                             FilledIconButton(
-                                onClick = { onNavigate(editUrl) },
+                                onClick = { submit() },
+                                enabled = editUrl.text.isNotBlank(),
                                 modifier = Modifier.size(32.dp).offset(x = 1.dp),
                                 shape = CircleShape,
                                 colors = IconButtonDefaults.filledIconButtonColors(
@@ -124,7 +176,7 @@ fun BrowserTopBar(
                             ) {
                                 Icon(
                                     Icons.Default.ArrowForward,
-                                    "→",
+                                    "转到",
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -159,46 +211,17 @@ fun BrowserTopBar(
             },
             navigationIcon = {
                 Row {
-                    if (isWide) {
-                        // Visible nav buttons for keyboard+mouse on tablet
-                        IconButton(
-                            onClick = { onNavigate(homeUrl) },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.Home, "主页", tint = ThemeColors.brand)
-                        }
-                        IconButton(
-                            onClick = onBack,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            @Suppress("DEPRECATION")
-                            Icon(
-                                Icons.Default.ArrowBack,
-                                "后退",
-                                tint = if (activeTab.canGoBack) ThemeColors.brand
-                                else ThemeColors.brand.copy(alpha = 0.3f)
-                            )
-                        }
-                        IconButton(
-                            onClick = onGoForward,
-                            enabled = activeTab.canGoForward,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.ArrowForward,
-                                "前进",
-                                tint = if (activeTab.canGoForward) ThemeColors.brand
-                                else ThemeColors.brand.copy(alpha = 0.3f)
-                            )
-                        }
-                        IconButton(
-                            onClick = onRefresh,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, "刷新", tint = ThemeColors.brand)
-                        }
-                        Spacer(Modifier.width(4.dp))
-                    }
+                    // 宽屏常驻导航按钮 (实现见 BrowserNavIcons, 400 行拆分批次 3)
+                    BrowserNavIcons(
+                        isWide = isWide,
+                        canGoBack = activeTab.canGoBack,
+                        canGoForward = activeTab.canGoForward,
+                        homeUrl = homeUrl,
+                        onNavigate = onNavigate,
+                        onBack = onBack,
+                        onGoForward = onGoForward,
+                        onRefresh = onRefresh
+                    )
                     // Tab count badge (phone only, hidden when 1 tab)
                     if (!isWide) {
                         IconButton(
@@ -223,7 +246,7 @@ fun BrowserTopBar(
                 }
             },
             actions = {
-                // Bookmark star
+                // Bookmark star — 打开收藏夹
                 IconButton(
                     onClick = onShowBookmarks,
                     modifier = Modifier.size(36.dp)
@@ -237,6 +260,8 @@ fun BrowserTopBar(
                 }
                 // Menu button with dropdown
                 var menuExpanded by remember { mutableStateOf(false) }
+                // 页面级功能 (翻译/查找/阅读) 的可用性只看「有没有页面」, 不看标题是否为空
+                val hasPage = activeTab.url.isNotBlank() && !activeTab.url.startsWith("about:")
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
@@ -259,23 +284,29 @@ fun BrowserTopBar(
                             onClick = { onNewTab(); menuExpanded = false }
                         )
                         DropdownMenuItem(
+                            text = { Text(if (isBookmarked) "取消收藏当前页" else "收藏当前页") },
+                            leadingIcon = { Icon(Icons.Default.Add, null) },
+                            enabled = activeTab.url.isNotBlank(),
+                            onClick = { onToggleBookmark(); menuExpanded = false }
+                        )
+                        DropdownMenuItem(
                             text = { Text("翻译页面") },
                             leadingIcon = { Icon(Icons.Default.Refresh, null) },
-                            enabled = activeTab.title.isNotBlank(),
+                            enabled = hasPage,
                             onClick = { onShowTranslate(); menuExpanded = false }
                         )
                         @Suppress("DEPRECATION")
                         DropdownMenuItem(
                             text = { Text("页面查找") },
                             leadingIcon = { Icon(Icons.Default.Search, null) },
-                            enabled = activeTab.title.isNotBlank(),
+                            enabled = hasPage,
                             onClick = { onShowFind(); menuExpanded = false }
                         )
                         @Suppress("DEPRECATION")
                         DropdownMenuItem(
                             text = { Text("阅读模式") },
                             leadingIcon = { Icon(Icons.Default.Star, null) },
-                            enabled = activeTab.title.isNotBlank(),
+                            enabled = hasPage,
                             onClick = { onShowReader(); menuExpanded = false }
                         )
                         DropdownMenuItem(

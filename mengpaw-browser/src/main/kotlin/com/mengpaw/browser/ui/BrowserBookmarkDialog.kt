@@ -15,32 +15,35 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.design.theme.ThemeColors
 
-/** Bookmark dialog with add current URL and click-to-navigate. */
+/**
+ * Bookmark dialog with add current URL and click-to-navigate.
+ *
+ * v0.10.2: 收藏列表由调用方以 state 传入 (旧实现直读 SharedPreferences 的普通 getter,
+ * 增删后列表与顶栏星标不会刷新 — 表现「点了没反应」)。
+ */
 @Composable
 fun BrowserBookmarkDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
-    prefs: BrowserPrefs,
+    bookmarks: List<String>,
     currentUrl: String,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
     onNavigate: (String) -> Unit
 ) {
     if (!visible) return
-
-    val list = prefs.bookmarks
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("收藏夹 (${list.size})")
+                Text("收藏夹 (${bookmarks.size})")
                 if (currentUrl.isNotBlank()) {
-                    IconButton(onClick = { prefs.addBookmark(currentUrl) }, modifier = Modifier.size(28.dp)) {
+                    IconButton(onClick = { onAdd(currentUrl) }, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Default.Add, "添加当前页", tint = ThemeColors.brand)
                     }
                 }
@@ -48,10 +51,10 @@ fun BrowserBookmarkDialog(
         },
         text = {
             LazyColumn {
-                if (list.isEmpty()) {
+                if (bookmarks.isEmpty()) {
                     item { Text("暂无收藏", color = ThemeColors.textSecondary, modifier = Modifier.padding(16.dp)) }
                 }
-                items(list) { url ->
+                items(bookmarks) { url ->
                     Surface(Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onNavigate(url); onDismiss() },
                         shape = RoundedCornerShape(6.dp), color = ThemeColors.bgCardHigh) {
                         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -59,7 +62,7 @@ fun BrowserBookmarkDialog(
                                 Text(url.substringAfter("://").substringBefore("/").take(30).ifBlank { url.take(40) }, maxLines = 1, fontSize = 13.sp)
                                 Text(url.take(60), style = MaterialTheme.typography.labelSmall, color = ThemeColors.textSecondary, maxLines = 1)
                             }
-                            IconButton(onClick = { prefs.removeBookmark(url) }, modifier = Modifier.size(20.dp)) {
+                            IconButton(onClick = { onRemove(url) }, modifier = Modifier.size(20.dp)) {
                                 Icon(Icons.Default.Close, "删除", modifier = Modifier.size(14.dp), tint = ThemeColors.textSecondary)
                             }
                         }
@@ -67,7 +70,7 @@ fun BrowserBookmarkDialog(
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
         dismissButton = {}
     )
 }

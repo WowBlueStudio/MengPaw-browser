@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.ui.components.TabChip
 import com.mengpaw.design.theme.ThemeColors
@@ -33,14 +32,14 @@ fun DesktopTabBar(
     activeTabId: Int,
     maxTabs: Int,
     webViewMap: MutableMap<Int, WebView>,
-    prefs: BrowserPrefs,
+    onAddBookmark: (String) -> Unit,
     onTabSelected: (Int) -> Unit,
     onTabClose: (Int) -> Unit,
     onNewTab: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
-    Surface(tonalElevation = 1.dp, color = ThemeColors.bgCardHigh) {
+    Surface(tonalElevation = 1.dp, color = ThemeColors.bgCardHigh, modifier = modifier) {
         Column {
             Row(
                 Modifier.fillMaxWidth()
@@ -65,10 +64,7 @@ fun DesktopTabBar(
                         expanded = tabMenuTabId == tab.id,
                         onDismissRequest = { tabMenuTabId = null }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("静音标签") },
-                            onClick = { tabMenuTabId = null }
-                        )
+                        // v0.10.2: 删除「静音标签」— 该菜单项只关菜单, 无任何实现 (WebView 无静音 API)
                         DropdownMenuItem(
                             text = { Text("推送给智能体") },
                             onClick = {
@@ -83,9 +79,13 @@ fun DesktopTabBar(
                                             Intent.FLAG_ACTIVITY_CLEAR_TOP
                                     )
                                 }
+                                // P2 修复: 旧实现空 catch 吞异常 — Shell 未装时点了没任何反馈
                                 try {
                                     ctx.startActivity(intent)
                                 } catch (_: Exception) {
+                                    android.widget.Toast.makeText(
+                                        ctx, "MengPaw 未安装", android.widget.Toast.LENGTH_SHORT
+                                    ).show()
                                 }
                                 tabMenuTabId = null
                             }
@@ -100,7 +100,7 @@ fun DesktopTabBar(
                         DropdownMenuItem(
                             text = { Text("添加收藏") },
                             onClick = {
-                                prefs.addBookmark(tab.url)
+                                onAddBookmark(tab.url)
                                 tabMenuTabId = null
                             }
                         )

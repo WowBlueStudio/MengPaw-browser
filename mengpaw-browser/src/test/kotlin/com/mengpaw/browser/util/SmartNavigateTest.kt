@@ -109,6 +109,53 @@ class SmartNavigateTest {
     }
 
     @Test
+    fun 全角句点域名按域名处理() {
+        // v0.10.2 回归: 中文输入法下 "." 常打成 "。", 旧实现判成关键词 → 只能靠搜索到达
+        assertEquals("https://github.com", smartNavigate("github。com", SearchEngine.BING))
+        assertEquals("https://github.com", smartNavigate("ｇｉｔｈｕｂ．ｃｏｍ", SearchEngine.BING))
+        assertEquals("https://www.example.com/x", smartNavigate("www.example.com／x", SearchEngine.BING))
+    }
+
+    @Test
+    fun 裸IP按HTTP处理() {
+        // 裸 IP 上的 https 需证书含 IP SAN — 一律 http:// (用户报障样例 http://47.119.135.155/home)
+        assertEquals("http://47.119.135.155/home", smartNavigate("47.119.135.155/home", SearchEngine.BING))
+        assertEquals("http://47.119.135.155", smartNavigate("47.119.135.155", SearchEngine.BING))
+        assertEquals("http://192.168.1.10:8080/admin", smartNavigate("192.168.1.10:8080/admin", SearchEngine.BING))
+        assertEquals("http://[::1]:8080/", smartNavigate("[::1]:8080/", SearchEngine.BING))
+    }
+
+    @Test
+    fun 局域网主机按HTTP处理() {
+        assertEquals("http://localhost:3000", smartNavigate("localhost:3000", SearchEngine.BING))
+        // 无端口的 localhost 也按主机处理 (与 Chrome 一致: 指向本机)
+        assertEquals("http://localhost", smartNavigate("localhost", SearchEngine.BING))
+        assertEquals("http://nas:5000", smartNavigate("nas:5000", SearchEngine.BING))
+        // 无端口的单标签主机名不是 URL (仍是关键词)
+        assertTrue(smartNavigate("mynas", SearchEngine.BING).startsWith("https://www.bing.com/search?q="))
+        // "3:14" 时刻不被当成主机:端口
+        assertTrue(smartNavigate("3:14", SearchEngine.BING).startsWith("https://www.bing.com/search?q="))
+    }
+
+    @Test
+    fun 域名尾点与零宽字符容错() {
+        assertEquals("https://github.com", smartNavigate("github.com.", SearchEngine.BING))
+        assertEquals("https://github.com", smartNavigate("\u200Bgithub.com\uFEFF", SearchEngine.BING))
+        assertEquals("https://github.com", smartNavigate("  github.com  ", SearchEngine.BING))
+    }
+
+    @Test
+    fun 协议相对与大小写协议() {
+        assertEquals("https://example.com/a", smartNavigate("//example.com/a", SearchEngine.BING))
+        assertEquals("HTTP://example.com", smartNavigate("HTTP://example.com", SearchEngine.BING))
+    }
+
+    @Test
+    fun 带端口域名按HTTPS处理() {
+        assertEquals("https://example.com:8443/x", smartNavigate("example.com:8443/x", SearchEngine.BING))
+    }
+
+    @Test
     fun fromKey未知键回退BING() {
         assertEquals(SearchEngine.BING, SearchEngine.fromKey("no-such-engine"))
         assertEquals(SearchEngine.GOOGLE, SearchEngine.fromKey("google"))

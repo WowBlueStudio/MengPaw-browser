@@ -7,41 +7,38 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.webkit.WebView
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.DetectedImage
 import com.mengpaw.browser.data.HistoryStore
+import com.mengpaw.browser.data.PendingLoad
 import com.mengpaw.browser.data.TabState
-import com.mengpaw.browser.util.smartNavigate
 import com.mengpaw.browser.util.PdfUtil
-import com.mengpaw.browser.web.createWebView
+import com.mengpaw.browser.ui.BrowserShortcutActions
 import com.mengpaw.browser.ui.BrowserTopBar
 import com.mengpaw.browser.ui.DesktopTabBar
-import com.mengpaw.browser.ui.NewTabPage
-import com.mengpaw.browser.ui.theme.BrowserThemeConfig
+import com.mengpaw.browser.ui.browserShortcuts
 import com.mengpaw.design.theme.ThemeColors
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 浏览器主 UI（自 BrowserActivity 拆出 — 400 行文件拆分批次 2）。
- * 状态 + 逻辑 + Scaffold 骨架; 对话框渲染委托 [BrowserAppDialogs], 内容区委托 [BrowserContentArea]。
+ * 浏览器主 UI（自 BrowserActivity 拆出 — 400 行文件拆分批次的第 2/3 批）。
+ * 状态 + Scaffold 骨架; 导航动作委托 [browserActions], 浮层状态委托 [BrowserOverlayState],
+ * 对话框渲染委托 [BrowserAppDialogs], 内容区委托 [BrowserContentArea]。
+ *
+ * v0.10.2 导航/交互修复:
+ * ① 用户导航走「状态更新 + 待办导航」双通道 — WebView 未就绪时不再静默丢失 (转不到);
+ * ② 浮层统一逐层关闭语义 (返回键/Esc), 查找栏此前拦不住返回键;
+ * ③ 桌面快捷键 (Ctrl+L/R/T/W/F/D、Alt+←/→、F5、Esc);
+ * ④ 收藏夹改为 state (增删即时刷新), 去掉只写不读的 quickClick/截图质量开关。
  */
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.material.ExperimentalMaterialApi::class)
@@ -58,16 +55,14 @@ fun BrowserApp(
     val maxTabs = 5
     // Scroll-aware toolbar animation
     var scrollOffset by remember { mutableStateOf(0) }
-    val showToolbar = isWide || scrollOffset < 200
+    val urlBarFocusRequester = remember { FocusRequester() }
+    val overlays = remember { BrowserOverlayState() }
 
     // Restore tabs from previous session, or start fresh
     var tabs by remember {
         val savedUrls = prefs.savedTabUrls
-        val savedActive = prefs.savedActiveTabId
         if (initialUrl == null && savedUrls.isNotEmpty()) {
-            mutableStateOf(savedUrls.mapIndexed { i, url ->
-                TabState(id = i, url = url)
-            })
+            mutableStateOf(savedUrls.mapIndexed { i, url -> TabState(id = i, url = url) })
         } else {
             mutableStateOf(listOf(TabState(id = 0, url = initialUrl ?: "")))
         }
@@ -88,34 +83,26 @@ fun BrowserApp(
         prefs.savedTabUrls = tabs.filter { it.url.isNotBlank() }.map { it.url }
         prefs.savedActiveTabId = activeTabId
     }
-    var showUrlBar by remember { mutableStateOf(false) }
-    var showControls by remember { mutableStateOf(showToolbar) }
     var searchQuery by remember { mutableStateOf("") }
-    var showImages by remember { mutableStateOf(false) }
     var images by remember { mutableStateOf<List<DetectedImage>>(emptyList()) }
-    var showTabs by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-    var showHistory by remember { mutableStateOf(false) }
-    var showPasswords by remember { mutableStateOf(false) }
-    var showTranslate by remember { mutableStateOf(false) }
-    var showFind by remember { mutableStateOf(false) }
-    var showReader by remember { mutableStateOf(false) }
-    var showMdViewer by remember { mutableStateOf(false) }
     var mdContent by remember { mutableStateOf("") }
     // PDF 预览: pending 源在 LaunchedEffect 中取数/写缓存后弹窗 (网络与本地 intent 共用)
     var pendingPdfSource by remember { mutableStateOf(initialPdfSource) }
     var pendingPdfTitle by remember { mutableStateOf(initialPdfTitle) }
     var pdfFile by remember { mutableStateOf<String?>(null) }
     var pdfTitle by remember { mutableStateOf("") }
-    var showPdfViewer by remember { mutableStateOf(false) }
-    var showBookmarks by remember { mutableStateOf(false) }
     var historyEnabled by remember { mutableStateOf(prefs.historyEnabled) }
+    // 收藏夹以 state 承载 — 增删后顶栏星标/收藏列表/新标签页快捷入口即时刷新
+    var bookmarks by remember { mutableStateOf(prefs.bookmarks) }
+    // 待办导航: 目标 WebView 尚未创建时先记下, 由内容区在视图就绪时消费 (见 PendingLoad)
+    var pendingLoad by remember { mutableStateOf<PendingLoad?>(null) }
+    var navSeq by remember { mutableStateOf(0L) }
 
     // Auto-open Markdown viewer if launched with .md file
     LaunchedEffect(initialMdContent) {
         if (!initialMdContent.isNullOrBlank()) {
             mdContent = initialMdContent
-            showMdViewer = true
+            overlays.showMdViewer = true
         }
     }
     // PDF 预览: 消费 pending 源 → IO 取数写缓存 → 弹窗 (超限/失败 Toast)
@@ -126,7 +113,7 @@ fun BrowserApp(
             if (file != null) {
                 pdfFile = file
                 pdfTitle = pendingPdfTitle
-                showPdfViewer = true
+                overlays.showPdfViewer = true
             } else {
                 Toast.makeText(ctx, "无法打开 PDF (文件过大或读取失败)", Toast.LENGTH_SHORT).show()
             }
@@ -137,11 +124,8 @@ fun BrowserApp(
     var searchEngine by remember { mutableStateOf(prefs.defaultEngine()) }
     var adBlockEnabled by remember { mutableStateOf(prefs.adBlockEnabled) }
     var darkMode by remember { mutableStateOf(prefs.darkMode) }
-    var quickClickEnabled by remember { mutableStateOf(prefs.quickClickEnabled) }
     var autoInjectBridge by remember { mutableStateOf(prefs.autoInjectBridge) }
     var screenshotMaxH by remember { mutableStateOf(prefs.screenshotMaxHeight) }
-    var screenshotQuality by remember { mutableStateOf(prefs.screenshotQuality) }
-    var showAgentSettings by remember { mutableStateOf(false) }
     val webViewMap = remember { mutableMapOf<Int, WebView>() }
     // Sync WebView map to Activity for system back-key navigation
     // P1 fix: 同步浏览器状态桥 — 内置 browser.* 命令 (BuiltinBrowserPlugin) 经它操作真实 tab 状态
@@ -158,6 +142,19 @@ fun BrowserApp(
 
     val activeTab = tabs.find { it.id == activeTabId } ?: tabs.first()
 
+    // 导航/返回/标签/收藏动作 — 读取项以 getter 传入, 首帧实例也不会读到过期状态
+    val actions = browserActions(
+        ctx = ctx, prefs = prefs, webViewMap = webViewMap,
+        tabs = { tabs }, setTabs = { tabs = it },
+        activeTabId = { activeTabId }, setActiveTabId = { activeTabId = it },
+        isColdStart = { isColdStart }, setIsColdStart = { isColdStart = it },
+        overlays = overlays,
+        searchEngine = { searchEngine }, historyEnabled = { historyEnabled }, historyStore = historyStore,
+        maxTabs = maxTabs,
+        bookmarks = { bookmarks }, setBookmarks = { bookmarks = it },
+        setPendingLoad = { pendingLoad = it }, nextSeq = { navSeq += 1; navSeq }
+    )
+
     // Inject dark mode CSS after page loads (URL change + not loading + darkMode on)
     LaunchedEffect(activeTab.url, activeTab.isLoading, darkMode) {
         if (darkMode && !activeTab.isLoading && activeTab.url.isNotBlank()) {
@@ -166,69 +163,16 @@ fun BrowserApp(
         }
     }
 
-    // System back key: WebView history → close tab → return to Shell
-    // P1 fix: 安全销毁 (先脱离视图树再 destroy) — Activity 的 destroyWebViewSafe 是
-    // private, BrowserApp (类外 top-level) 不可访问, 此处内联同等逻辑
-    val destroyWv: (android.webkit.WebView?) -> Unit = { w ->
-        if (w != null) {
-            try { (w.parent as? android.view.ViewGroup)?.removeView(w) } catch (_: Exception) {}
-            try { w.stopLoading(); w.destroy() } catch (_: Exception) {}
-        }
-    }
-    val handleBack: () -> Unit = {
-        val wv = webViewMap[activeTabId]
-        if (wv?.canGoBack() == true) { wv.goBack() }
-        else {
-            val remaining = tabs.filter { it.id != activeTabId }
-            if (remaining.isNotEmpty()) {
-                destroyWv(wv); webViewMap.remove(activeTabId)
-                tabs = remaining; activeTabId = remaining.first().id; isColdStart = false
-            } else if (!isColdStart) {
-                webViewMap.values.forEach { destroyWv(it) }; webViewMap.clear()
-                tabs = listOf(TabState(id = 0)); activeTabId = 0; isColdStart = true
-            } else {
-                try { ctx.startActivity(ctx.packageManager.getLaunchIntentForPackage("com.mengpaw.shell")); (ctx as? BrowserActivity)?.finish() }
-                catch (_: Exception) { (ctx as? BrowserActivity)?.finish() }
-            }
-        }
-    }
-    val navigate = { input: String ->
-        val final = smartNavigate(input, searchEngine)
-        if (final.isNotBlank()) {
-            tabs = tabs.map { if (it.id == activeTabId) it.copy(url = final) else it }
-            showUrlBar = false; isColdStart = false
-            if (historyEnabled) historyStore.record(final, final.take(60))
-            webViewMap[activeTabId]?.loadUrl(final)
-        }
-    }
-
-    /**
-     * P2 fix: 统一开新 tab 入口 — maxTabs=5 上限真正生效。
-     * 此前 DesktopTabBar/BrowserTabDialog 只在 UI 上隐藏 "+" 按钮, TopBar 菜单 "新标签页"
-     * 与 Agent 桥 (browser.mcp.invoke tab/new) 可无限开 tab。达上限时提示, 不静默创建。
-     */
-    val openNewTab: () -> Unit = {
-        if (tabs.size >= maxTabs) {
-            Toast.makeText(ctx, "标签页已达上限 ($maxTabs)，请先关闭部分标签页", Toast.LENGTH_SHORT).show()
-        } else {
-            val newId = (tabs.maxOfOrNull { it.id } ?: 0) + 1
-            tabs = tabs + TabState(id = newId)
-            activeTabId = newId
-            isColdStart = true
-        }
-    }
-
-    val updateTab = { id: Int, update: (TabState) -> TabState ->
-        tabs = tabs.map { if (it.id == id) update(it) else it }
-    }
+    // 新页面回到顶部: 滚动收起工具栏后, 导航到新页必须让地址栏重新出现 (否则手机端无从输入)
+    LaunchedEffect(activeTab.url) { scrollOffset = 0 }
 
     DisposableEffect(Unit) {
         val activity = ctx as? BrowserActivity
-        activity?.onSystemBack = handleBack
-        activity?.onOpenUrl = { url -> if (url != null) navigate(url) }
-        activity?.onOpenMd = { title, url, md ->
+        activity?.onSystemBack = actions.handleBack
+        activity?.onOpenUrl = { url -> if (url != null) actions.navigate(url) }
+        activity?.onOpenMd = { _, _, md ->
             mdContent = md
-            showMdViewer = true
+            overlays.showMdViewer = true
         }
         activity?.onOpenPdf = { src, t ->
             pendingPdfSource = src
@@ -242,49 +186,55 @@ fun BrowserApp(
         }
     }
 
+    val shortcuts = BrowserShortcutActions(
+        onFocusUrlBar = { overlays.showUrlBar = true; urlBarFocusRequester.requestFocus() },
+        onReload = { webViewMap[activeTabId]?.reload() },
+        onBack = actions.handleBack,
+        onForward = { webViewMap[activeTabId]?.goForward() },
+        onNewTab = actions.openNewTab,
+        onCloseTab = actions.closeTab,
+        onFind = { overlays.showFind = true },
+        onToggleBookmark = actions.toggleBookmark,
+        onEscape = { overlays.dismissTop() }
+    )
+
     Scaffold(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().browserShortcuts(shortcuts),
         topBar = {
             if (!isColdStart) {
                 BrowserTopBar(
-                    visible = showToolbar || showControls,
-                    showUrlBar = showUrlBar,
-                    onShowUrlBarChange = { showUrlBar = it },
+                    // 手机滚动页面时收起工具栏; 编辑地址栏或宽屏时保持常驻
+                    visible = isWide || overlays.showUrlBar || scrollOffset < 200,
+                    showUrlBar = overlays.showUrlBar,
+                    onShowUrlBarChange = { overlays.showUrlBar = it },
                     isWide = isWide,
                     activeTab = activeTab,
                     activeTabId = activeTabId,
                     tabs = tabs,
                     adBlockEnabled = adBlockEnabled,
-                    isBookmarked = prefs.isBookmarked(activeTab.url),
-                    webViewMap = webViewMap,
+                    isBookmarked = activeTab.url in bookmarks,
+                    urlBarFocusRequester = urlBarFocusRequester,
                     homeUrl = prefs.homeUrl,
-                    onNavigate = { navigate(it) },
-                    onBack = handleBack,
-                    onShowTabs = { showTabs = !showTabs },
-                    onShowBookmarks = { showBookmarks = true },
+                    onNavigate = actions.navigate,
+                    onBack = actions.handleBack,
+                    onShowTabs = { overlays.showTabs = !overlays.showTabs },
+                    onShowBookmarks = { overlays.showBookmarks = true },
+                    onToggleBookmark = actions.toggleBookmark,
                     onRefresh = { webViewMap[activeTabId]?.reload() },
                     onGoForward = { webViewMap[activeTabId]?.goForward() },
                     onGoBack = { webViewMap[activeTabId]?.goBack() },
-                    onNewTab = openNewTab,
-                    onCloseTab = {
-                        tabs = tabs.filter { it.id != activeTabId }
-                        // P1 fix: 先脱离视图树再 destroy (attached destroy 风险)
-                        webViewMap.remove(activeTabId)?.let { wv ->
-                            try { (wv.parent as? android.view.ViewGroup)?.removeView(wv) } catch (_: Exception) {}
-                            try { wv.stopLoading(); wv.destroy() } catch (_: Exception) {}
-                        }
-                        activeTabId = tabs.first().id
-                    },
-                    onShowTranslate = { showTranslate = true },
-                    onShowFind = { showFind = true },
-                    onShowReader = { showReader = true },
+                    onNewTab = actions.openNewTab,
+                    onCloseTab = actions.closeTab,
+                    onShowTranslate = { overlays.showTranslate = true },
+                    onShowFind = { overlays.showFind = true },
+                    onShowReader = { overlays.showReader = true },
                     onAdBlockToggle = {
                         adBlockEnabled = !adBlockEnabled
                         prefs.adBlockEnabled = adBlockEnabled
                         webViewMap[activeTabId]?.reload()
                     },
-                    onShowHistory = { showHistory = true },
-                    onShowPasswords = { showPasswords = true },
+                    onShowHistory = { overlays.showHistory = true },
+                    onShowPasswords = { overlays.showPasswords = true },
                     onShare = { url ->
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "text/plain"
@@ -294,13 +244,13 @@ fun BrowserApp(
                     },
                     onSendToAgent = { url -> (ctx as? BrowserActivity)?.sendToAgent(url, activeTab.title, extract = false) },
                     onExtractToAgent = { url, title -> (ctx as? BrowserActivity)?.sendToAgent(url, title, extract = true) },
-                    onShowSettings = { showSettings = true },
-                    onShowAgentSettings = { showAgentSettings = true }
+                    onShowSettings = { overlays.showSettings = true },
+                    onShowAgentSettings = { overlays.showAgentSettings = true }
                 )
             }
         }
     ) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
+        Column(Modifier.fillMaxSize().padding(padding).imePadding()) {
             // ── Desktop tab bar ──
             if (isWide && !isColdStart) {
                 DesktopTabBar(
@@ -308,25 +258,21 @@ fun BrowserApp(
                     activeTabId = activeTabId,
                     maxTabs = maxTabs,
                     webViewMap = webViewMap,
-                    prefs = prefs,
+                    onAddBookmark = actions.addBookmark,
                     onTabSelected = { id ->
                         activeTabId = id
                         isColdStart = tabs.find { it.id == id }?.url.isNullOrBlank() ?: true
                     },
                     onTabClose = { id ->
-                        // P1 fix: 先脱离视图树再 destroy (attached destroy 风险)
-                        webViewMap.remove(id)?.let { wv ->
-                            try { (wv.parent as? android.view.ViewGroup)?.removeView(wv) } catch (_: Exception) {}
-                            try { wv.stopLoading(); wv.destroy() } catch (_: Exception) {}
-                        }
+                        destroyWebViewSafe(webViewMap.remove(id))
                         tabs = tabs.filter { it.id != id }
                         if (activeTabId == id) activeTabId = tabs.first().id
                     },
-                    onNewTab = openNewTab
+                    onNewTab = actions.openNewTab
                 )
             }
             // ── Loader (material-colored progress bar) ──
-            AnimatedVisibility(visible = activeTab.isLoading && !isColdStart, enter = fadeIn(), exit = fadeOut()) {
+            if (activeTab.isLoading && !isColdStart) {
                 LinearProgressIndicator(
                     { activeTab.progress / 100f },
                     modifier = Modifier.fillMaxWidth().height(3.dp),
@@ -342,8 +288,8 @@ fun BrowserApp(
                 activeTabId = activeTabId,
                 webViewMap = webViewMap,
                 isWide = isWide,
-                adBlockEnabled = adBlockEnabled,
-                autoInjectBridge = autoInjectBridge,
+                adBlockEnabled = { adBlockEnabled },
+                autoInjectBridge = { autoInjectBridge },
                 searchQuery = searchQuery,
                 onSearchQueryChange = { searchQuery = it },
                 searchEngine = searchEngine,
@@ -355,14 +301,16 @@ fun BrowserApp(
                         prefs.setDefaultEngine(searchEngine)
                     }
                 },
-                prefs = prefs,
-                updateTab = updateTab,
-                onImagesDetected = { imgs -> images = imgs; showImages = true },
+                bookmarks = bookmarks,
+                updateTab = actions.updateTab,
+                onImagesDetected = { imgs -> images = imgs; overlays.showImages = true },
                 onScroll = { dy -> scrollOffset = (scrollOffset + dy).coerceIn(0, 500) },
-                onNavigate = { navigate(it) },
-                onShowBookmarks = { showBookmarks = true },
-                onShowMarkdown = { text -> mdContent = text; showMdViewer = true },
-                onShowPdf = { src, t -> pendingPdfSource = src; pendingPdfTitle = t }
+                onNavigate = actions.navigate,
+                onShowBookmarks = { overlays.showBookmarks = true },
+                onShowMarkdown = { text -> mdContent = text; overlays.showMdViewer = true },
+                onShowPdf = { src, t -> pendingPdfSource = src; pendingPdfTitle = t },
+                pendingLoad = pendingLoad,
+                onPendingLoadConsumed = { pendingLoad = null }
             )
             // ── 全屏对话框层 (Settings/历史/密码/翻译/图片/查找/阅读/标签页/书签/Markdown) ──
             BrowserAppDialogs(
@@ -377,14 +325,14 @@ fun BrowserApp(
                 historyStore = historyStore,
                 historyEnabled = historyEnabled,
                 images = images,
+                bookmarks = bookmarks,
+                onAddBookmark = actions.addBookmark,
+                onRemoveBookmark = actions.removeBookmark,
                 // Settings dialog
-                showSettings = showSettings, onDismissSettings = { showSettings = false },
+                showSettings = overlays.showSettings, onDismissSettings = { overlays.showSettings = false },
                 adBlockEnabled = adBlockEnabled, onAdBlockToggled = { adBlockEnabled = it; prefs.adBlockEnabled = it },
                 darkMode = darkMode, onDarkModeToggled = { darkMode = it; prefs.darkMode = it; webViewMap[activeTabId]?.reload() },
                 searchEngine = searchEngine, onDefaultEngineChanged = { searchEngine = it },
-                webViewVersion = remember {
-                    try { WebView.getCurrentWebViewPackage()?.versionName ?: "" } catch (_: Exception) { "" }
-                },
                 onOpenCoolApk = {
                     val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.coolapk.com/apk/com.google.android.webview"))
                     try { ctx.startActivity(intent) } catch (_: Exception) { }
@@ -394,45 +342,41 @@ fun BrowserApp(
                     try { ctx.startActivity(intent) } catch (_: Exception) { }
                 },
                 // Agent Collaboration Settings
-                showAgentSettings = showAgentSettings, onDismissAgentSettings = { showAgentSettings = false },
-                quickClickEnabled = quickClickEnabled, onQuickClickToggled = { quickClickEnabled = it; prefs.quickClickEnabled = it },
+                showAgentSettings = overlays.showAgentSettings, onDismissAgentSettings = { overlays.showAgentSettings = false },
                 autoInjectBridge = autoInjectBridge, onAutoInjectToggled = { autoInjectBridge = it; prefs.autoInjectBridge = it },
                 screenshotMaxH = screenshotMaxH, onScreenshotMaxHChanged = { screenshotMaxH = it; prefs.screenshotMaxHeight = it },
-                screenshotQuality = screenshotQuality, onScreenshotQualityChanged = { screenshotQuality = it; prefs.screenshotQuality = it },
                 // History dialog
-                showHistory = showHistory, onDismissHistory = { showHistory = false },
+                showHistory = overlays.showHistory, onDismissHistory = { overlays.showHistory = false },
                 onHistoryEnabledToggle = { historyEnabled = it; prefs.historyEnabled = it },
                 // Password dialog
-                showPasswords = showPasswords, onDismissPasswords = { showPasswords = false },
+                showPasswords = overlays.showPasswords, onDismissPasswords = { overlays.showPasswords = false },
                 // Translate dialog
-                showTranslate = showTranslate, onDismissTranslate = { showTranslate = false },
+                showTranslate = overlays.showTranslate, onDismissTranslate = { overlays.showTranslate = false },
                 // Image picker
-                showImages = showImages, onDismissImages = { showImages = false },
+                showImages = overlays.showImages, onDismissImages = { overlays.showImages = false },
                 // Find / Reader
-                showFind = showFind, onDismissFind = { showFind = false },
-                showReader = showReader, onDismissReader = { showReader = false },
+                showFind = overlays.showFind, onDismissFind = { overlays.showFind = false },
+                showReader = overlays.showReader, onDismissReader = { overlays.showReader = false },
                 // Tab dialog (phone)
-                showTabs = showTabs, onDismissTabs = { showTabs = false },
-                onTabSelected = { id, cold -> activeTabId = id; isColdStart = cold; showTabs = false },
+                showTabs = overlays.showTabs, onDismissTabs = { overlays.showTabs = false },
+                onTabSelected = { id, cold -> activeTabId = id; isColdStart = cold; overlays.showTabs = false },
                 onTabClose = { id ->
                     // P1 fix: 先脱离视图树再 destroy (attached destroy 风险)
-                    webViewMap.remove(id)?.let { wv ->
-                        try { (wv.parent as? android.view.ViewGroup)?.removeView(wv) } catch (_: Exception) {}
-                        try { wv.stopLoading(); wv.destroy() } catch (_: Exception) {}
-                    }
+                    destroyWebViewSafe(webViewMap.remove(id))
                     tabs = tabs.filter { it.id != id }
-                    if (tabs.isEmpty()) { tabs = listOf(TabState(id = 0)); activeTabId = 0; isColdStart = true; showTabs = false }
-                    else if (activeTabId == id) activeTabId = tabs.first().id
+                    if (tabs.isEmpty()) {
+                        tabs = listOf(TabState(id = 0)); activeTabId = 0; isColdStart = true; overlays.showTabs = false
+                    } else if (activeTabId == id) activeTabId = tabs.first().id
                 },
-                onNewTab = openNewTab,
+                onNewTab = actions.openNewTab,
                 // Bookmarks / Markdown viewer
-                showBookmarks = showBookmarks, onDismissBookmarks = { showBookmarks = false },
-                onNavigate = { navigate(it) },
-                showMdViewer = showMdViewer, mdContent = mdContent,
-                onDismissMdViewer = { showMdViewer = false; mdContent = "" },
+                showBookmarks = overlays.showBookmarks, onDismissBookmarks = { overlays.showBookmarks = false },
+                onNavigate = actions.navigate,
+                showMdViewer = overlays.showMdViewer, mdContent = mdContent,
+                onDismissMdViewer = { overlays.showMdViewer = false; mdContent = "" },
                 // PDF viewer
-                showPdfViewer = showPdfViewer, pdfFile = pdfFile, pdfTitle = pdfTitle,
-                onDismissPdfViewer = { showPdfViewer = false; pdfFile = null }
+                showPdfViewer = overlays.showPdfViewer, pdfFile = pdfFile, pdfTitle = pdfTitle,
+                onDismissPdfViewer = { overlays.showPdfViewer = false; pdfFile = null }
             )
         }
     }

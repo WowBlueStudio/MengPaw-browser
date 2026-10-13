@@ -81,15 +81,61 @@ private fun escapeHtml(s: String): String = buildString(s.length) {
     }
 }
 
+/** 网络错误码 → 中文提示 (onReceivedError 只有英文 net::ERR_* 描述, 用户看不出该做什么)。 */
+private fun errorHint(desc: String): String = when {
+    desc.contains("CLEARTEXT", ignoreCase = true) ->
+        "该站点是明文 http，被系统流量策略拦截"
+    desc.contains("NAME_NOT_RESOLVED", ignoreCase = true) ->
+        "域名解析失败：网址可能拼错，或当前网络 DNS 不可用"
+    desc.contains("TIMED_OUT", ignoreCase = true) ->
+        "连接超时：站点无响应，或当前网络无法访问该站点"
+    desc.contains("CONNECTION_REFUSED", ignoreCase = true) ->
+        "连接被拒绝：站点端口未开放"
+    desc.contains("CONNECTION_RESET", ignoreCase = true) ||
+        desc.contains("CONNECTION_CLOSED", ignoreCase = true) ->
+        "连接被重置：链路被中断（网络屏蔽或站点故障）"
+    desc.contains("SSL", ignoreCase = true) || desc.contains("CERT", ignoreCase = true) ->
+        "证书校验失败：站点证书无效（本浏览器不允许绕过证书错误）"
+    desc.contains("UNKNOWN_URL_SCHEME", ignoreCase = true) ->
+        "不支持的地址协议"
+    else -> ""
+}
+
+/**
+ * 内置错误页: 展示错误码 + 人话解释 + 重试入口。
+ * 重试按钮用 <a href> 而非 JS — 无脚本、无注入面, 且链接交给
+ * [android.webkit.WebViewClient.shouldOverrideUrlLoading] 正常放行。
+ * 仅 http(s) 失败地址才渲染重试 (其余协议不提供可点击入口)。
+ */
+private fun errorPageHtml(desc: String, failingUrl: String): String {
+    val hint = errorHint(desc)
+    val retry = if (failingUrl.startsWith("http://") || failingUrl.startsWith("https://")) {
+        "<p><a href=\"${escapeHtml(failingUrl)}\" style=\"display:inline-block;padding:10px 22px;" +
+            "background:#2F6FED;color:#fff;border-radius:22px;text-decoration:none\">重试</a></p>"
+    } else ""
+    return "<html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>" +
+        "<body style='padding:40px 24px;font-family:sans-serif;text-align:center'>" +
+        "<h2 style='margin-bottom:8px'>页面加载失败</h2>" +
+        (if (hint.isNotBlank()) "<p style='color:#444'>${escapeHtml(hint)}</p>" else "") +
+        "<p style='color:#888;font-size:13px;word-break:break-all'>${escapeHtml(desc)}</p>" +
+        "<p style='color:#aaa;font-size:12px;word-break:break-all'>${escapeHtml(failingUrl.take(160))}</p>" +
+        retry +
+        "</body></html>"
+}
+
 @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
 fun createWebView(
-    ctx: android.content.Context, tab: TabState, isWide: Boolean, adBlock: Boolean,
-    autoInject: Boolean = true,
+    ctx: android.content.Context, tab: TabState, isWide: Boolean,
+    /** 广告拦截/桥接注入为动态读取 — 设置里切换后无需重建 WebView 即对下次加载生效 */
+    adBlock: () -> Boolean,
+    autoInject: () -> Boolean = { true },
     updateTab: (Int, (TabState) -> TabState) -> Unit,
     onMediaDetected: (List<DetectedImage>) -> Unit,
     onScroll: (Int) -> Unit = {},
     onMarkdownDetected: (String) -> Unit = {},
-    onPdfDetected: (String) -> Unit = {}
+    onPdfDetected: (String) -> Unit = {},
+    /** false 时不在构造期加载 tab.url — 由调用方 (待办导航) 统一加载, 避免重复导航 */
+    loadInitialUrl: Boolean = true
 ): WebView = WebView(ctx).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
@@ -171,10 +217,17 @@ fun createWebView(
             // SECURITY: Reject all SSL certificate errors — no bypass allowed
             handler?.cancel()
             android.util.Log.e("BrowserActivity", "SSL error: ${error?.primaryError} for ${error?.url}")
-            // Show user-facing feedback
-            val host = try { java.net.URI(error?.url ?: "").host } catch (_: Exception) { error?.url ?: "" }
+            val failing = error?.url ?: view?.url ?: ""
+            val host = try { java.net.URI(failing).host } catch (_: Exception) { failing }
+            updateTab(tab.id) { it.copy(isLoading = false) }
+            // P1 修复: 此前只弹 Toast 不换页 — 证书错误时旧页面残留, 用户以为「点了没反应」
             view?.post {
                 Toast.makeText(ctx, "SSL 证书错误，已阻止加载: $host", Toast.LENGTH_LONG).show()
+                view.loadDataWithBaseURL(
+                    null,
+                    errorPageHtml("net::ERR_CERT_AUTHORITY_INVALID (SSL 证书不受信任)", failing),
+                    "text/html", "UTF-8", null
+                )
             }
         }
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
@@ -182,27 +235,35 @@ fun createWebView(
             if (request?.isForMainFrame != true) return
             val failingUrl = request?.url?.toString() ?: view?.url ?: ""
             val desc = error?.description?.toString() ?: "未知错误"
-            // SECURITY: desc/failingUrl 来自不可信页面 (恶意 URL 可注入 HTML/JS) — 必须转义
-            val html = "<html><body style='padding:40px;font-family:sans-serif;text-align:center'>" +
-                "<h2>页面加载失败</h2><p>${escapeHtml(desc)}</p>" +
-                "<p style='color:#888;font-size:14px'>${escapeHtml(failingUrl.take(100))}</p></body></html>"
-            view?.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+            // 主帧失败必须停掉加载态, 否则进度条永远转 (旧实现漏了这一步)
+            updateTab(tab.id) { it.copy(isLoading = false) }
+            android.util.Log.e("BrowserActivity", "Page load failed ($desc): $failingUrl")
+            view?.loadDataWithBaseURL(
+                null, errorPageHtml(desc, failingUrl), "text/html", "UTF-8", null
+            )
         }
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-            // SECURITY: Block dangerous URL schemes (javascript:, file:, content:, intent:, etc.)
+            // SECURITY: Block dangerous URL schemes (javascript:, data:, content:, etc.)
             val url = request?.url?.toString() ?: return false
-            if (!url.startsWith("http://") && !url.startsWith("https://")) {
-                if (url.startsWith("file://")) return false  // allow local file access
-                if (url.startsWith("intent://") || url.startsWith("tel:") ||
-                    url.startsWith("sms:") || url.startsWith("mailto:")) {
-                    // Allow system intent schemes (handled by Android Intent system)
-                    try {
-                        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, request.url))
-                    } catch (_: Exception) { }
+            val lower = url.lowercase()
+            if (!lower.startsWith("http://") && !lower.startsWith("https://")) {
+                if (lower.startsWith("file://") || lower.startsWith("about:")) return false
+                // 危险协议: 页面脚本注入 / 本地内容 — 一律拦截
+                if (lower.startsWith("javascript:") || lower.startsWith("data:") ||
+                    lower.startsWith("blob:") || lower.startsWith("content:")) {
+                    android.util.Log.w("BrowserActivity", "Blocked unsafe URL scheme: ${url.take(80)}")
                     return true
                 }
-                // Block javascript:, content:, data:, and other dangerous schemes
-                android.util.Log.w("BrowserActivity", "Blocked unsafe URL scheme: ${url.take(80)}")
+                // P1 修复: 其余非 http(s) 协议 (tel/sms/mailto/intent/market/weixin/alipays/...)
+                // 交给系统处理 — 旧实现只放行 4 种, 大量站点按钮 (拨号/唤起 App/支付) 点了没反应
+                try {
+                    ctx.startActivity(
+                        android.content.Intent(android.content.Intent.ACTION_VIEW, request.url)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                } catch (_: Exception) {
+                    android.util.Log.w("BrowserActivity", "No handler for scheme: ${url.take(80)}")
+                }
                 return true
             }
             // In-page .md URL → intercept + render preview (navigation-level O(len) check only;
@@ -237,7 +298,7 @@ fun createWebView(
                 // Hide app-banner elements
                 evaluateJavascript(HIDE_APP_BANNER_JS, null)
                 // Auto-inject __mp bridge for faster Agent commands (if enabled)
-                if (autoInject) {
+                if (autoInject()) {
                     evaluateJavascript("(function(){if(!window.__mp||!window.__mp._v){" +
                         "window.__mp={_v:1,_cache:{}," +
                         "c:function(s){var e=document.querySelector(s);if(!e)return JSON.stringify({ok:false,error:'not found:'+s});e.click();return JSON.stringify({ok:true,tag:e.tagName})}," +
@@ -280,7 +341,11 @@ fun createWebView(
                 onPdfDetected(request.url.toString())
                 return WebResourceResponse("text/plain", "utf-8", java.io.ByteArrayInputStream(ByteArray(0)))
             }
-            if (adBlock && request?.url != null && isAdRequest(request.url.toString())) {
+            // P1 修复: 广告拦截只作用于子资源 — 旧实现连主帧一起拦, 主帧 URL 命中
+            // 广告特征 (如 /ad/ 路径段、utm 参数) 时整页被替换成空响应, 表现为「网站打不开」
+            if (request?.isForMainFrame != true && adBlock() &&
+                request?.url != null && isAdRequest(request.url.toString())
+            ) {
                 return WebResourceResponse("text/plain", "utf-8", null)
             }
             return super.shouldInterceptRequest(view, request)
@@ -291,5 +356,5 @@ fun createWebView(
         override fun onReceivedTitle(view: WebView?, t: String?) { updateTab(tab.id) { it.copy(title = t ?: "") } }
     }
 
-    if (tab.url.isNotBlank()) loadUrl(tab.url)
+    if (loadInitialUrl && tab.url.isNotBlank()) loadUrl(tab.url)
 }

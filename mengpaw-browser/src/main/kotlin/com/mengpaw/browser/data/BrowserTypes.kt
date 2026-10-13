@@ -16,6 +16,15 @@ data class DetectedImage(
     val mediaType: String = "image" // "image" or "video"
 )
 
+/**
+ * 待办导航请求 (v0.10.2): 地址栏回车/点击 → 时, 若该标签的 WebView 尚未在
+ * `webViewMap` 中就绪 (冷启动首帧、刚切换标签), 直接 `map[id]?.loadUrl()` 会静默丢失
+ * —— 表现为「转到按钮没反应」。改为记下请求, 由内容区在 WebView 就绪的同一帧消费。
+ *
+ * @param seq 单调递增序号 — 同一 URL 连续提交两次也能各触发一次。
+ */
+data class PendingLoad(val tabId: Int, val url: String, val seq: Long)
+
 enum class SearchEngine(val label: String, val url: String, val key: String) {
     GOOGLE("Google", "https://www.google.com/search?q=", "google"),
     BING("Bing", "https://www.bing.com/search?q=", "bing"),

@@ -20,10 +20,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mengpaw.browser.data.BrowserPrefs
 import com.mengpaw.browser.data.SearchEngine
 import com.mengpaw.browser.ui.components.SearchEngineLogo
 import com.mengpaw.design.theme.ThemeColors
@@ -39,13 +40,14 @@ fun NewTabPage(
     searchEngine: SearchEngine,
     onSearchEngineCycle: () -> Unit,
     isWide: Boolean,
-    prefs: BrowserPrefs,
+    /** 收藏夹 (由 BrowserApp 以 state 传入 — 增删后本页快捷入口立即刷新) */
+    bookmarks: List<String>,
     onNavigate: (String) -> Unit,
     onShowBookmarks: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
-        Modifier.fillMaxSize(),
+        modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Top spacer
@@ -112,10 +114,15 @@ fun NewTabPage(
                 singleLine = true,
                 shape = RoundedCornerShape(ArcoRadius.round),
                 keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Search
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Search,
+                    capitalization = KeyboardCapitalization.None,
+                    autoCorrect = false
                 ),
                 keyboardActions = KeyboardActions(
-                    onSearch = { onNavigate(searchQuery) }
+                    onSearch = { if (searchQuery.isNotBlank()) onNavigate(searchQuery) },
+                    onGo = { if (searchQuery.isNotBlank()) onNavigate(searchQuery) },
+                    onDone = { if (searchQuery.isNotBlank()) onNavigate(searchQuery) }
                 ),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = ThemeColors.brand,
@@ -124,7 +131,7 @@ fun NewTabPage(
             )
         }
         // Dynamic bookmark bar
-        val bmList = prefs.bookmarks
+        val bmList = bookmarks
         if (bmList.isNotEmpty()) {
             Spacer(Modifier.height(24.dp))
             BoxWithConstraints(

@@ -3,8 +3,6 @@
 
 package com.mengpaw.browser.ui
 
-import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,23 +12,27 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mengpaw.browser.data.DetectedImage
-import com.mengpaw.browser.util.downloadImage
 import com.mengpaw.design.theme.ThemeColors
 
-/** Image picker dialog listing detected images with download-on-click. */
+/**
+ * Image picker dialog listing detected images with download-on-click.
+ *
+ * v0.10.2: 下载改为回调交给调用方 (存活更久的作用域 + 真实成败反馈), 且不再在点击后
+ * 立即关闭对话框 — 旧实现用弹窗自身的作用域启动下载, `onDismiss()` 同帧取消协程,
+ * 下载静默失败却提示「已保存」。
+ */
 @Composable
 fun BrowserImagePickerDialog(
     visible: Boolean,
     onDismiss: () -> Unit,
     images: List<DetectedImage>,
-    ctx: Context
+    onSave: (String) -> Unit
 ) {
     if (!visible || images.isEmpty()) return
 
@@ -41,11 +43,8 @@ fun BrowserImagePickerDialog(
             LazyColumn {
                 items(images.size) { idx ->
                     val img = images[idx]
-                    val imgScope = rememberCoroutineScope()
                     Surface(Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable {
-                        downloadImage(imgScope, ctx, img.src)
-                        Toast.makeText(ctx, "已保存: ${img.src.substringAfterLast('/').take(30)}", Toast.LENGTH_SHORT).show()
-                        onDismiss()
+                        onSave(img.src)
                     }, shape = RoundedCornerShape(8.dp), color = ThemeColors.bgCardHigh) {
                         Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text("#${idx + 1}", fontWeight = FontWeight.Bold, color = ThemeColors.brand, modifier = Modifier.width(28.dp), fontSize = 12.sp)
