@@ -21,6 +21,29 @@
   - 纯函数 `web/UserAgent.kt` + `web/UserAgentTest.kt` 4 条守护
     （平板不含 Mobile / 手机不改写 UA / 主版本跟随引擎 / 两形态互不污染）
 
+### 修复（站点兼容性 — 用户报障「trekbikes.com 顶栏分类菜单点不开 / 100% 高容器异常 / 浮层弹窗全部没加载」）
+
+- **「打开 App」推广条拦截列表大幅收窄（很可能是浮层消失的直接原因）**
+  `HIDE_APP_BANNER_JS` 旧列表含 `[class*=floatBtn]`、`[class*=bottom-bar]`、`[class*=bottomBar]`、
+  `[class*=openIn]`、`[class*=float-app]`、`[class*=native-app]`、`[class*=mobile-app]`、
+  `[class*=goToApp]`、`[class*=appLink]` 等**通用类名子串**，并一律 `display:none!important`。
+  正常站点的**正当浮层**（浮动购物车/客服/底部操作条/弹窗内层）大量使用这些类名 ⇒ 被我们隐藏。
+  现在只保留语义明确指向 App 推广的选择器。
+- **广告拦截不再拦功能性查询参数**：查询规则去掉 `ref=` 与 `sponsored`（站点内部跳转/接口
+  `?ref=nav`、`?ref=header` 极常见），只保留纯追踪参数（`utm_*`/`gclid`/`fbclid`/`msclkid`/`yclid`/`adid`）。
+  被误拦会让站点的导航/浮层数据取不到，表现为「分类菜单点不开、浮层不出现」这类局部 JS 初始化失败。
+- **站点 `window.open` / `target=_blank` 弹层现在有承接**：此前未开
+  `setSupportMultipleWindows(true)` ⇒ 站点用 window.open 打开的浮层/快捷查看/登录窗**静默消失**。
+  现在用一次性探针 WebView 取到真实 URL 后**开新标签**（与 Chrome 行为一致）；
+  达标签上限时给出 Toast 而不是静默丢弃。
+
+### 新增（兼容性诊断能力）
+
+- **站点 JS 报错可见**：注入 `error` / `unhandledrejection` 钩子（幂等，`onPageStarted` +
+  `onPageFinished` 双注入），并经 `WebChromeClient.onConsoleMessage` 把 WARNING 以上打到
+  **`MpWebConsole`** tag ⇒ 现场可直接 `adb logcat -s MpWebConsole` 看到站点报了什么错，
+  不必再靠猜（多窗口探针的 URL、错误行号都在里面）。
+
 ## v0.10.4 (2026-10-13) — 载入反馈：顶栏「点击即转」的旋转指示器
 
 ### 修复 / 新增

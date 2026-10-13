@@ -54,8 +54,11 @@ class AdBlockerTest {
     @Test
     fun 查询参数模式命中() {
         assertTrue(isAdRequest("https://example.com/article?utm_source=newsletter"))
-        assertTrue(isAdRequest("https://example.com/?ref=sponsor"))
+        // v0.10.4: `ref=` 是功能性参数（站点内部跳转/接口常用，如 ?ref=nav），不再拦截
+        assertFalse(isAdRequest("https://example.com/?ref=sponsor"))
+        assertFalse(isAdRequest("https://example.com/nav?ref=header&lang=zh"))
         assertTrue(isAdRequest("https://example.com/?gclid=abc"))
+        assertTrue(isAdRequest("https://example.com/?msclkid=abc"))
     }
 
     @Test
@@ -106,8 +109,11 @@ class AdBlockerTest {
     @Test
     fun `真正的推广参数仍然拦截`() {
         assertTrue(isAdRequest("https://example.com/p?utm_medium=cpc"))
-        assertTrue(isAdRequest("https://example.com/p?x=1&ref=sponsor"))
         assertTrue(isAdRequest("https://example.com/p?fbclid=xyz"))
-        assertTrue(isAdRequest("https://example.com/p?a=1&sponsored=1"))
+        assertTrue(isAdRequest("https://example.com/p?yclid=xyz"))
+        // v0.10.4: ref= / sponsored 属功能性参数, 不拦（站点导航/接口常用）——
+        // 拦掉会造成「顶栏分类菜单点不开、浮层弹窗不出现」这类局部 JS 初始化失败。
+        assertFalse(isAdRequest("https://example.com/p?x=1&ref=sponsor"))
+        assertFalse(isAdRequest("https://example.com/p?a=1&sponsored=1"))
     }
 }

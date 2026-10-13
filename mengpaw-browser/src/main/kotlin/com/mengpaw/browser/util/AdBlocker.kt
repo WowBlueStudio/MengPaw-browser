@@ -25,12 +25,15 @@ private val AD_PATH_PATTERNS = listOf(
 )
 
 /**
- * 查询参数模式 (v0.10.3): 只对 query 匹配, 不再误伤路径与 fragment。
- * 注意 query 里不含 URL 的 `?` 分隔符, 故 [Regex] 的 `[?&]` 前导是可选的 ——
- * 它在旧实现里用来避免误配, 现在由「只扫 query」这件事本身保证。
+ * 查询参数模式（v0.10.4 收窄）: 只对 query 匹配，且**只保留纯追踪参数**。
+ *
+ * 旧规则含 `ref=` 与 `sponsored` —— 它们是**功能性参数**（`?ref=nav`、`?ref=header` 这类
+ * 站点内部跳转/接口调用极常见），拦掉会让站点的导航/浮层数据取不到，表现为
+ * 「顶栏分类菜单点不开、浮层弹窗全都不出现、100% 高容器异常」这类**局部 JS 初始化失败**。
+ * 现在只拦真正无功能语义的追踪参数（utm_/gclid/fbclid/adid/msclkid/yclid）。
  */
 private val AD_QUERY_PATTERNS = listOf(
-    Regex("[?&]?(?:utm_|ref=|sponsored|adid|gclid|fbclid)", RegexOption.IGNORE_CASE)
+    Regex("[?&]?(?:utm_[a-z]+|gclid|fbclid|msclkid|yclid|adid)=", RegexOption.IGNORE_CASE)
 )
 
 /**

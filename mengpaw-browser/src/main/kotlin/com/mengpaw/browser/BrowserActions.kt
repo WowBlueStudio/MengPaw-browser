@@ -61,6 +61,8 @@ internal class BrowserActions(
     val navigate: (String) -> Unit,
     val handleBack: () -> Unit,
     val openNewTab: () -> Unit,
+    /** 用新标签打开指定 URL（站点弹窗承接） */
+    val openUrlInNewTab: (String) -> Unit,
     val closeTab: () -> Unit,
     val updateTab: (Int, (TabState) -> TabState) -> Unit,
     val addBookmark: (String) -> Unit,
@@ -192,6 +194,23 @@ internal fun browserActions(
         }
     }
 
+    /**
+     * 用新标签打开一个 URL（累计修改 — 站点 `window.open` 弹窗承接）。
+     * 与 [openNewTab] 的区别: 直接带 URL 并置加载态；达上限时提示不静默丢弃。
+     */
+    val openUrlInNewTab: (String) -> Unit = { url ->
+        val current = tabs()
+        if (current.size >= maxTabs) {
+            Toast.makeText(ctx, "标签页已达上限 ($maxTabs)，弹窗未打开: ${url.take(60)}", Toast.LENGTH_LONG).show()
+        } else {
+            val newId = (current.maxOfOrNull { it.id } ?: 0) + 1
+            setTabs(current + TabState(id = newId, url = url, isLoading = true))
+            setActiveTabId(newId)
+            setIsColdStart(false)
+            setPendingLoad(PendingLoad(newId, url, nextSeq()))
+        }
+    }
+
     val updateTab: (Int, (TabState) -> TabState) -> Unit = { id, update ->
         setTabs(tabs().map { if (it.id == id) update(it) else it })
     }
@@ -220,6 +239,7 @@ internal fun browserActions(
         navigate = navigate,
         handleBack = handleBack,
         openNewTab = openNewTab,
+        openUrlInNewTab = openUrlInNewTab,
         closeTab = closeTab,
         updateTab = updateTab,
         addBookmark = addBookmark,

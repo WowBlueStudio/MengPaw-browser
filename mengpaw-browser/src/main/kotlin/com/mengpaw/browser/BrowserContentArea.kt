@@ -71,6 +71,8 @@ internal fun ColumnScope.BrowserContentArea(
     onShowBookmarks: () -> Unit,
     onShowMarkdown: (String) -> Unit,
     onShowPdf: (String, String) -> Unit,
+    /** 站点 window.open 弹窗 URL → 由 BrowserApp 开新标签承接（累计修改） */
+    onNewWindow: (String) -> Unit = {},
     pendingLoad: PendingLoad? = null,
     onPendingLoadConsumed: () -> Unit = {}
 ) {
@@ -147,7 +149,9 @@ internal fun ColumnScope.BrowserContentArea(
                                 // 有待办导航时构造期不加载, 交给 update 统一消费 (避免重复导航)
                                 loadInitialUrl = pendingLoad?.tabId != tab.id,
                                 // 平板请求桌面版页面, 手机请求移动版
-                                desktopSite = desktopSite
+                                desktopSite = desktopSite,
+                                // 站点弹窗（window.open）→ 开新标签承接
+                                onNewWindow = onNewWindow
                             )
                         },
                         update = { wv ->

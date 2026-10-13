@@ -329,6 +329,8 @@ fun BrowserApp(
                 onShowBookmarks = { overlays.showBookmarks = true },
                 onShowMarkdown = { text -> mdContent = text; overlays.showMdViewer = true },
                 onShowPdf = { src, t -> pendingPdfSource = src; pendingPdfTitle = t },
+                // 站点 window.open 弹窗 → 新标签承接（累计修改）
+                onNewWindow = actions.openUrlInNewTab,
                 pendingLoad = pendingLoad,
                 onPendingLoadConsumed = { pendingLoad = null }
             )

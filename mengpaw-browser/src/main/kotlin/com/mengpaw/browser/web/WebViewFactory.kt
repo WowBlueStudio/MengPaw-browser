@@ -19,25 +19,31 @@ import com.mengpaw.browser.util.isAdRequest
 
 // ── App-banner hiding CSS ───────────────────────────────────────
 
+/**
+ * 隐藏「打开 App / 下载 App」推广条（累计修改：**大幅收窄选择器**）。
+ *
+ * 事故背景: 旧列表含大量**通用类名子串**（`[class*=floatBtn]`、`[class*=bottom-bar]`、
+ * `[class*=bottomBar]`、`[class*=openIn]`、`[class*=float-app]`、`[class*=native-app]`、
+ * `[class*=mobile-app]`、`[class*=goToApp]`、`[class*=appLink]` …）并一律
+ * `display:none!important`。这些子串在正常站点里被**正当浮层**大量使用
+ * （浮动购物车/客服/底部操作条/弹窗容器内层），于是出现用户报障的
+ * 「**浮层弹窗全部都没有加载**」「分类菜单点不开」——不是没加载，是被我们的 CSS 隐藏了。
+ *
+ * 现在只保留**语义明确指向 App 推广**的选择器（smartbanner / app-banner / 打开App /
+ * 下载App / 应用内打开），不再碰通用布局类名。
+ */
 private val HIDE_APP_BANNER_JS = """
 (function(){if(window.__mpHideBanner)return;window.__mpHideBanner=true;
 var s=document.createElement('style');s.id='mp-hide-banner';
 s.textContent=[
 '#smartbanner,.smartbanner,[class*=app-banner],[class*=app_banner]',
 '[class*=open-app],[class*=openApp],[class*=OpenInApp],[class*=open_in_app]',
-'[class*=app-download],[class*=appDownload],[class*=mobile-app]',
-'[class*=native-app],.app-install,.appInstallBanner',
+'[class*=app-download],[class*=appDownload],[class*=app-install],[class*=appInstall]',
 '[id*=smartbanner],[id*=app-banner],[id*=app_banner]',
-'.weibo-app-banner,.open-in-app,.openAppBtn',
+'.weibo-app-banner,.open-in-app,.open-in-app-btn,.openAppBtn',
 '.downloadApp,.download-app,.download_app',
-'.app-promotion,.appPromotion,.app-guide,.appGuide',
-'[class*=float-app],[class*=app-float],[class*=floatBtn]',
-'[class*=bottom-bar],[class*=bottomBar],[class*=openIn]',
-'.OpenInAppButton,.Button--openInApp,.AppHeader',
-'.MobileAppHeader__button,.sohu-app-bar,.appBtn',
-'.open-app-btn,.open-in-app-btn,.go-app-btn',
-'[class*=goToApp],[class*=launchApp],[class*=appLink]',
-'[class*=app-guide-bottom],[class*=bottom-app]'
+'.app-promotion,.appPromotion,.OpenInAppButton,.Button--openInApp',
+'.MobileAppHeader__button,.sohu-app-bar'
 ].join(',')+'{display:none!important}';
 document.head.appendChild(s)})();
 """.trimIndent()
@@ -94,6 +100,20 @@ internal fun applyUserAgent(wv: WebView, desktopSite: Boolean) {
         // 设置失败不阻断加载 (保持系统默认 UA)
     }
 }
+
+/**
+ * 站点 JS 错误钩子（累计修改 — 兼容性诊断）。
+ *
+ * 页面报错默认只进 `chromium` tag，站点「菜单点不开/浮层不出/高度异常」时现场无从取证。
+ * 这里捕获 `error` 与 `unhandledrejection` 并转成 `console.error`，
+ * 由 [WebChromeClient.onConsoleMessage] 打到 `MpWebConsole` tag，可经
+ * `adb logcat -s MpWebConsole` 直接读取。
+ */
+private val MP_ERROR_HOOK_JS = "(function(){if(window.__mpErrHook)return;window.__mpErrHook=1;" +
+    "window.addEventListener('error',function(e){try{console.error('[mp] JS error: '+(e.message||'')+" +
+    "' @ '+(e.filename||'')+':'+(e.lineno||0))}catch(x){}},true);" +
+    "window.addEventListener('unhandledrejection',function(e){try{console.error('[mp] unhandled rejection: '+" +
+    "((e.reason&&e.reason.message)||String(e.reason)))}catch(x){}});})();"
 
 /** HTML 特殊字符转义 — 错误页等拼接场景防注入 (恶意 URL/错误描述可携带 HTML/JS)。 */private fun escapeHtml(s: String): String = buildString(s.length) {
     for (ch in s) {
@@ -170,7 +190,12 @@ fun createWebView(
     /** false 时不在构造期加载 tab.url — 由调用方 (待办导航) 统一加载, 避免重复导航 */
     loadInitialUrl: Boolean = true,
     /** 平板设备（`smallestScreenWidthDp >= 600`）→ 请求桌面版页面；手机（含横屏）→ 移动版 */
-    desktopSite: Boolean = false
+    desktopSite: Boolean = false,
+    /**
+     * 站点 `window.open` / `target=_blank` 弹窗的真实 URL 回调（累计修改）——
+     * 由调用方开新标签承接；此前多窗口未开启，弹层全部静默消失。
+     */
+    onNewWindow: (String) -> Unit = {}
 ): WebView = WebView(ctx).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
@@ -336,12 +361,16 @@ fun createWebView(
                 }
             }
             url?.let { u -> updateTab(tab.id) { it.copy(url = u, isLoading = true) } }
+            // 尽早注入 JS 错误钩子（onPageFinished 会再补一次，覆盖晚绑定错误）
+            evaluateJavascript(MP_ERROR_HOOK_JS, null)
         }
         override fun onPageFinished(view: WebView?, url: String?) {
             updateTab(tab.id) { it.copy(isLoading = false, title = view?.title ?: "", canGoBack = view?.canGoBack() ?: false, canGoForward = view?.canGoForward() ?: false) }
             url?.let { u ->
                 // Hide app-banner elements
                 evaluateJavascript(HIDE_APP_BANNER_JS, null)
+                // 站点 JS 错误钩子（诊断用；幂等）
+                evaluateJavascript(MP_ERROR_HOOK_JS, null)
                 // Auto-inject __mp bridge for faster Agent commands (if enabled)
                 if (autoInject()) {
                     evaluateJavascript("(function(){if(!window.__mp||!window.__mp._v){" +
@@ -399,7 +428,58 @@ fun createWebView(
     webChromeClient = object : WebChromeClient() {
         override fun onProgressChanged(view: WebView?, p: Int) { updateTab(tab.id) { it.copy(progress = p) } }
         override fun onReceivedTitle(view: WebView?, t: String?) { updateTab(tab.id) { it.copy(title = t ?: "") } }
+
+        /**
+         * 站点 JS 报错/告警可见化（累计修改 — 兼容性诊断）。
+         *
+         * 背景: 站点「分类菜单点不开 / 浮层弹窗不出 / 100% 高容器异常」这类**局部功能失效**，
+         * 现场只能靠猜；而 WebView 的 console 默认只进 `chromium` tag 且常被忽略。
+         * 这里把 WARNING 以上（含页面注入的 `[mp] JS error` 钩子）打到 `MpWebConsole`，
+         * 便于经 ADB `logcat -s MpWebConsole` 直接看到站点到底报了什么错。
+         * 返回 true = 已处理，避免重复刷屏。
+         */
+        override fun onConsoleMessage(msg: ConsoleMessage?): Boolean {
+            val m = msg ?: return false
+            if (m.messageLevel() >= ConsoleMessage.MessageLevel.WARNING) {
+                android.util.Log.w(
+                    "MpWebConsole",
+                    "[${m.sourceId()}:${m.lineNumber()}] ${m.message()?.take(400)}"
+                )
+            }
+            return true
+        }
+
+        /**
+         * 弹窗（`window.open` / `target=_blank`）承接（累计修改 — 兼容性修复）。
+         *
+         * 背景: `setSupportMultipleWindows(true)` 之前未开 → 站点用 window.open 打开的
+         * **浮层弹窗/快捷查看/登录窗全部静默不出现**（用户报障「浮层弹窗全部没有加载」）。
+         * 这里用一次性探针 WebView 拿到真实 URL，交给标签系统开新标签（与 Chrome 行为一致），
+         * 再销毁探针。
+         */
+        override fun onCreateWindow(
+            view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?
+        ): Boolean {
+            val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+            val probe = WebView(ctx)
+            probe.webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(v: WebView?, request: WebResourceRequest?): Boolean {
+                    val u = request?.url?.toString()
+                    if (!u.isNullOrBlank() && !u.startsWith("about:") && !u.startsWith("data:")) {
+                        onNewWindow(u)
+                    }
+                    try { v?.stopLoading(); v?.destroy() } catch (_: Exception) { }
+                    return true
+                }
+            }
+            transport.webView = probe
+            resultMsg.sendToTarget()
+            return true
+        }
     }
+
+    // 弹窗（window.open）需要开启多窗口支持，否则 onCreateWindow 不会被回调
+    settings.setSupportMultipleWindows(true)
 
     if (loadInitialUrl && tab.url.isNotBlank()) loadUrl(tab.url)
 }
