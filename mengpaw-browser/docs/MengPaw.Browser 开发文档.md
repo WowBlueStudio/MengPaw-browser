@@ -1,7 +1,7 @@
 # MengPaw.Browser 开发文档
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
-> 文档版本: v0.10.1 · 2026-09-10 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
+> 文档版本: v0.10.2-dev · 2026-09-10 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
 > 本文档分两部分: **第一部分**引导 Shell Agent 经 am 桥控制浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
@@ -129,6 +129,7 @@ com.mengpaw.browser
 ├── plugin/                    # BuiltinBrowserPlugin + 4 命令组 + BrowserCommandContext
 ├── service/                   # RunCommandService (am 桥) / GoogleTranslate
 ├── ui/                        # TopBar / 设置 / 书签 / 历史 / 标签页等 Compose UI
+│   └── BrowserKeyShortcuts.kt # 桌面快捷键 (Ctrl+L/R/T/W/F/D、Alt+←→、F5、Esc)
 ├── util/                      # AdBlocker / BrowserStorage / DownloadUtil / PdfUtil / SmartNavigate
 └── web/                       # WebViewFactory / MdViewer* / PdfViewer*
 ```
@@ -139,11 +140,28 @@ com.mengpaw.browser
 
 关键生命周期:
 
-- `BrowserActivity.onCreate`: 初始化 DataPaths/Logger → 绑定 Quick Click/截图设置到
+- `BrowserActivity.onCreate`: 初始化 DataPaths/Logger → 绑定截图设置到
   `BuiltinBrowserPlugin` → `BuiltinBrowserPlugin.shared` 供 am 桥复用 →
   首启申请「所有文件访问」。
+- `BrowserActivity.onResume`: 恢复全部 WebView (`onResume`) — 与 `onTrimMemory` 的
+  `onPause` 配对, 否则后台/内存压力后页面可能停止渲染。
 - `BrowserActivity.onDestroy`: 销毁全部 WebView、清空状态桥。
 - 9880 HTTP 桥(`McpHttpServer`/`McpAuthPolicy`/`BrowserMcpTools`)已随决策 #7 退役删除。
+
+#### 6.1 地址栏与导航语义 (v0.10.2 定案, 修「转到没反应」)
+
+| 环节 | 语义 | 实现 |
+|------|------|------|
+| 输入判定 | 归一化全角/零宽字符 → 协议 → 裸 IP/局域网主机 (补 http) → 域名 (补 https) → 搜索 | `util/SmartNavigate.kt` |
+| 获焦 | **全选** 原文 (浏览器惯例), 输入直接覆盖旧地址 | `ui/BrowserTopBar.kt` `onFocusChanged` |
+| 编辑中 | 有焦点期间**不回写**输入框 (页面重定向不得吞掉用户输入) | `LaunchedEffect(activeTab.url)` 带 `editing` 判定 |
+| 提交 | → 按钮 / IME 搜索·前往·完成 / 物理回车 → 同一 `submit()`; 空输入给提示; 提交后清焦点收键盘 | `ui/BrowserTopBar.kt` |
+| 落地 | 有 WebView 直接 `loadUrl`; 没有则登记 `PendingLoad`, 由内容区在视图就绪帧消费 | `BrowserApp.navigate` + `BrowserContentArea.update` |
+| 失败 | 主帧失败 → 错误码 + 中文解释 + 重试按钮, 并停止加载态 | `web/WebViewFactory.kt` `errorPageHtml` |
+| 明文 http | 允许 (Chrome 同做法) — `AndroidManifest` `usesCleartextTraffic="true"` | `src/main/AndroidManifest.xml` |
+| 非 http 协议 | `tel/sms/mailto/intent/market/weixin/...` 交系统; `javascript/data/blob/content` 拦截 | `web/WebViewFactory.kt` |
+| 快捷键 | Ctrl/⌘+L/R/T/W/F/D、Alt+←→、F5、Esc (逐层关闭) | `ui/BrowserKeyShortcuts.kt` |
+| 返回键 | 先关浮层 (查找栏/地址栏/弹窗) → WebView 后退 → 关标签 → 回 Shell | `BrowserApp.dismissTopOverlay` + `handleBack` |
 
 ### 7. 命令面实现
 
