@@ -27,6 +27,7 @@ import com.mengpaw.browser.data.SearchEngine
 import com.mengpaw.browser.data.TabState
 import com.mengpaw.browser.ui.NewTabPage
 import com.mengpaw.browser.util.PdfUtil
+import com.mengpaw.browser.web.applyUserAgent
 import com.mengpaw.browser.web.createWebView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,6 +54,8 @@ internal fun ColumnScope.BrowserContentArea(
     activeTabId: Int,
     webViewMap: MutableMap<Int, WebView>,
     isWide: Boolean,
+    /** 平板设备（`smallestScreenWidthDp >= 600`）→ 请求桌面版网页；手机（含横屏）→ 移动版 */
+    desktopSite: Boolean,
     adBlockEnabled: () -> Boolean,
     autoInjectBridge: () -> Boolean,
     searchQuery: String,
@@ -142,11 +145,16 @@ internal fun ColumnScope.BrowserContentArea(
                                 onMarkdownDetected = { url -> fetchMarkdownUrl(url) },
                                 onPdfDetected = { url -> onShowPdf(url, PdfUtil.displayName(url)) },
                                 // 有待办导航时构造期不加载, 交给 update 统一消费 (避免重复导航)
-                                loadInitialUrl = pendingLoad?.tabId != tab.id
+                                loadInitialUrl = pendingLoad?.tabId != tab.id,
+                                // 平板请求桌面版页面, 手机请求移动版
+                                desktopSite = desktopSite
                             )
                         },
                         update = { wv ->
                             webViewMap[tab.id] = wv
+                            // 累计修改: 形态变化(旋转/折叠展开/分屏)后纠正 UA —
+                            // 平板请求桌面版, 手机请求移动版 (已加载页需刷新才重新请求)
+                            applyUserAgent(wv, desktopSite)
                             val pending = pendingLoad
                             if (pending != null && pending.tabId == tab.id && consumedSeq.value != pending.seq) {
                                 consumedSeq.value = pending.seq

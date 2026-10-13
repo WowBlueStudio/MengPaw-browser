@@ -3,6 +3,24 @@
 > 浏览器独立仓库版本记录。版本单点: `gradle.properties` 的 `mengpaw.browser.version`。
 > 许可: AGPL-3.0-or-later OR LicenseRef-Commercial。
 
+## 未发布 (Unreleased) — 累计修改
+
+> 按用户指令：**累计改动，不急着出 APK**。以下条目已实现 + 单测通过 + 已提交，未构建发行包、未发版。
+
+### 新增
+
+- **形态自适应 UA：平板请求桌面版网页，手机请求移动版网页**
+  - Android WebView 默认 UA 带 `Mobile` 标记 ⇒ 平板屏再宽，站点也给移动版（窄栏、触屏样式）。
+    现在平板改用桌面 UA（Windows 标识 + **与当前 WebView 引擎同主版本**，避免
+    「UA 说 Chrome 120、引擎是 Chrome 108」触发站点能力探测异常）
+  - 手机保持系统默认 UA（`WebSettings.getDefaultUserAgent`，含 `Mobile`）
+  - **判定口径是设备类别不是当前宽度**：用 `smallestScreenWidthDp >= 600`（Android 官方平板判据），
+    不是 `screenWidthDp >= 600` —— 否则**手机横屏**（宽度也 ≥600dp）会被误判成平板而请求桌面版
+  - 幂等应用：WebView 创建时 + `AndroidView.update` 都调用 `applyUserAgent`，旋转/折叠屏展开/
+    分屏改变形态后自动纠正；**已加载页面需刷新**才按新 UA 重新请求
+  - 纯函数 `web/UserAgent.kt` + `web/UserAgentTest.kt` 4 条守护
+    （平板不含 Mobile / 手机不改写 UA / 主版本跟随引擎 / 两形态互不污染）
+
 ## v0.10.4 (2026-10-13) — 载入反馈：顶栏「点击即转」的旋转指示器
 
 ### 修复 / 新增

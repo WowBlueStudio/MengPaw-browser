@@ -52,6 +52,9 @@ fun BrowserApp(
     val ctx = LocalContext.current
     val prefs = remember { BrowserPrefs(ctx) }
     val isWide = LocalConfiguration.current.screenWidthDp >= 600
+    // 平板判据用**最小宽度**（Android 官方口径）: 手机横屏 screenWidthDp 也会 ≥600,
+    // 按宽度判会把手机横屏当成平板 → 误请求桌面版网页。
+    val isTablet = LocalConfiguration.current.smallestScreenWidthDp >= 600
     val maxTabs = 5
     // Scroll-aware toolbar animation
     var scrollOffset by remember { mutableStateOf(0) }
@@ -304,6 +307,7 @@ fun BrowserApp(
                 activeTabId = activeTabId,
                 webViewMap = webViewMap,
                 isWide = isWide,
+                desktopSite = isTablet,
                 adBlockEnabled = { adBlockEnabled },
                 autoInjectBridge = { autoInjectBridge },
                 searchQuery = searchQuery,

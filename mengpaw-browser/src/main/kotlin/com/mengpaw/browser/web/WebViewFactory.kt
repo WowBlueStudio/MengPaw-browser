@@ -67,8 +67,35 @@ private fun isComfyUiUrl(raw: String): Boolean {
     return portOk || hostOk
 }
 
-/** HTML 特殊字符转义 — 错误页等拼接场景防注入 (恶意 URL/错误描述可携带 HTML/JS)。 */
-private fun escapeHtml(s: String): String = buildString(s.length) {
+/**
+ * 形态 UA 策略（累计修改）: 平板 → 桌面版页面; 手机（含横屏）→ 移动版页面。
+ *
+ * [desktopSite] 由调用方按**设备类别**判定（`smallestScreenWidthDp >= 600`），不是当前宽度 ——
+ * 手机横屏宽度也会 ≥600dp，按宽度判会误请求桌面版。
+ *
+ * 幂等且廉价: 只在目标值与当前值不同时才写（`update` 块每次重组都会调用它，
+ * 因此旋转屏幕/折叠屏展开/分屏改变形态后也会自动纠正 UA）。
+ * 注意: 已加载的页面需要**刷新**才按新 UA 重新请求（与桌面端浏览器切换 UA 行为一致）。
+ */
+internal fun applyUserAgent(wv: WebView, desktopSite: Boolean) {
+    try {
+        // 必须取系统原始默认值 —— settings.userAgentString 可能已被本策略改过
+        val systemDefault = WebSettings.getDefaultUserAgent(wv.context)
+        val engineVersion = try { WebView.getCurrentWebViewPackage()?.versionName } catch (_: Exception) { null }
+        val target = userAgentFor(desktopSite, systemDefault, engineVersion)
+        if (wv.settings.userAgentString != target) {
+            wv.settings.userAgentString = target
+            android.util.Log.i(
+                "BrowserActivity",
+                "UA 按形态切换 (desktopSite=$desktopSite): ${target.take(72)}"
+            )
+        }
+    } catch (_: Exception) {
+        // 设置失败不阻断加载 (保持系统默认 UA)
+    }
+}
+
+/** HTML 特殊字符转义 — 错误页等拼接场景防注入 (恶意 URL/错误描述可携带 HTML/JS)。 */private fun escapeHtml(s: String): String = buildString(s.length) {
     for (ch in s) {
         when (ch) {
             '&' -> append("&amp;")
@@ -141,7 +168,9 @@ fun createWebView(
     onMarkdownDetected: (String) -> Unit = {},
     onPdfDetected: (String) -> Unit = {},
     /** false 时不在构造期加载 tab.url — 由调用方 (待办导航) 统一加载, 避免重复导航 */
-    loadInitialUrl: Boolean = true
+    loadInitialUrl: Boolean = true,
+    /** 平板设备（`smallestScreenWidthDp >= 600`）→ 请求桌面版页面；手机（含横屏）→ 移动版 */
+    desktopSite: Boolean = false
 ): WebView = WebView(ctx).apply {
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
@@ -153,6 +182,8 @@ fun createWebView(
     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
     // Allow file:// access for local Markdown/HTML files
     settings.allowFileAccess = true
+    // 累计修改: 平板请求桌面版页面, 手机请求移动版 (设备类别判定, 策略见 UserAgent.kt)
+    applyUserAgent(this, desktopSite)
     // SECURITY: Disable third-party cookies to prevent cross-site tracking
     try { CookieManager.getInstance().setAcceptThirdPartyCookies(this, false) } catch (_: Exception) { }
     try { CookieManager.getInstance().setAcceptCookie(true) } catch (_: Exception) { }

@@ -159,6 +159,7 @@ com.mengpaw.browser
 | 落地 | 有 WebView 直接 `loadUrl`; 没有则登记 `PendingLoad`, 由内容区在视图就绪帧消费 | `BrowserApp.navigate` + `BrowserContentArea.update` |
 | 失败 | 主帧失败 → 错误码 + 中文解释 + 重试按钮, 并停止加载态 | `web/WebViewFactory.kt` `errorPageHtml` |
 | 明文 http | 允许 (Chrome 同做法) — `AndroidManifest` `usesCleartextTraffic="true"` | `src/main/AndroidManifest.xml` |
+| 形态 UA | **平板**（`smallestScreenWidthDp ≥ 600`）请求桌面版网页；**手机**（含横屏）请求移动版 | `web/UserAgent.kt`：`userAgentFor` / `applyUserAgent`（WebView 创建时 + `AndroidView.update` 都调用，形态变化自动纠正；已加载页需刷新生效） |
 | 非 http 协议 | `tel/sms/mailto/intent/market/weixin/...` 交系统; `javascript/data/blob/content` 拦截 | `web/WebViewFactory.kt` |
 | 快捷键 | Ctrl/⌘+L/R/T/W/F/D、Alt+←→、F5、Esc (逐层关闭) | `ui/BrowserKeyShortcuts.kt` |
 | 返回键 | 先关浮层 (查找栏/地址栏/弹窗) → WebView 后退 → 关标签 → 回 Shell | `BrowserApp.dismissTopOverlay` + `handleBack` |
