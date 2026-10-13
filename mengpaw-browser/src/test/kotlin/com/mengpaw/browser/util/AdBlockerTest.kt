@@ -70,4 +70,44 @@ class AdBlockerTest {
         assertFalse(isAdRequest(""))
         assertFalse(isAdRequest("javascript:alert(1)"))
     }
+
+    // ── v0.10.3 P1: 分段匹配, query/fragment 不再误伤子资源与跳转 ──────────
+
+    @Test
+    fun `query 里的路径样式字样不再误拦`() {
+        // 旧实现对整条 URL 匹配: `?redirect=/ads/`、`?next=/pixel.gif` 会被整条拦掉
+        assertFalse(isAdRequest("https://example.com/article?redirect=/ads/banner.png"))
+        assertFalse(isAdRequest("https://example.com/article?next=/js/tracker.js"))
+        assertFalse(isAdRequest("https://example.com/api?cb=/analytics/"))
+    }
+
+    @Test
+    fun `fragment 里的路径样式字样不再误拦`() {
+        assertFalse(isAdRequest("https://example.com/doc#/ads/section"))
+        assertFalse(isAdRequest("https://example.com/doc#stat/"))
+    }
+
+    @Test
+    fun `fragment 里出现 ref= 也不再误拦`() {
+        // 旧实现连 fragment 都扫, `#ref=x` 会被当成推广链接
+        assertFalse(isAdRequest("https://example.com/guide#ref=readme"))
+        assertFalse(isAdRequest("https://example.com/a#gclid"))
+    }
+
+    @Test
+    fun `路径命中仍然拦截`() {
+        assertTrue(isAdRequest("https://example.com/ads/banner.png"))
+        assertTrue(isAdRequest("https://example.com/js/tracker.js"))
+        assertTrue(isAdRequest("https://example.com/img/beacon.gif"))
+        // 带 query 的广告路径同样命中
+        assertTrue(isAdRequest("https://example.com/ads/banner.png?v=2"))
+    }
+
+    @Test
+    fun `真正的推广参数仍然拦截`() {
+        assertTrue(isAdRequest("https://example.com/p?utm_medium=cpc"))
+        assertTrue(isAdRequest("https://example.com/p?x=1&ref=sponsor"))
+        assertTrue(isAdRequest("https://example.com/p?fbclid=xyz"))
+        assertTrue(isAdRequest("https://example.com/p?a=1&sponsored=1"))
+    }
 }

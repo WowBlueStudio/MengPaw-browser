@@ -18,10 +18,19 @@ private val AD_DOMAINS = listOf(
     "bat.bing.com", "clarity.ms", "hotjar.com", "mouseflow.com"
 )
 
-private val AD_PATTERNS = listOf(
+/** 路径模式 (v0.10.3): 只对 `host + path` 匹配, 不再扫 query/fragment。 */
+private val AD_PATH_PATTERNS = listOf(
     Regex("[/.](?:ad|ads|advert|banner|popup|popunder|sponsor)[s]?[/.]", RegexOption.IGNORE_CASE),
-    Regex("[/.](?:tracker|tracking|pixel|beacon|analytics|stat)[s]?[/.]", RegexOption.IGNORE_CASE),
-    Regex("[?&](?:utm_|ref=|sponsored|adid|gclid|fbclid)", RegexOption.IGNORE_CASE)
+    Regex("[/.](?:tracker|tracking|pixel|beacon|analytics|stat)[s]?[/.]", RegexOption.IGNORE_CASE)
+)
+
+/**
+ * 查询参数模式 (v0.10.3): 只对 query 匹配, 不再误伤路径与 fragment。
+ * 注意 query 里不含 URL 的 `?` 分隔符, 故 [Regex] 的 `[?&]` 前导是可选的 ——
+ * 它在旧实现里用来避免误配, 现在由「只扫 query」这件事本身保证。
+ */
+private val AD_QUERY_PATTERNS = listOf(
+    Regex("[?&]?(?:utm_|ref=|sponsored|adid|gclid|fbclid)", RegexOption.IGNORE_CASE)
 )
 
 /**
@@ -37,6 +46,16 @@ private fun hostMatches(host: String, rule: String): Boolean {
     return h == r || h.endsWith(".$r")
 }
 
+/**
+ * v0.10.3 P1 fix: 路径模式只对 `host + path` 匹配, 查询参数模式只对 query 匹配。
+ *
+ * 旧实现对**整条 URL** (含 query 与 fragment) 逐条匹配, 于是子资源 URL 只要
+ * query 里带了 `/ads/`、`analytics`、`?utm_` 之类字样就被整条拦掉 (第三方站点
+ * 常用 `?ref=` / `utm_` 做跳转), 表现为页面功能被打断。现在:
+ * - 前两条 (`[/.](ad|ads|…)`、`[/.](tracker|…)`) 只作用于 `host + path`;
+ * - 第三条 (`[?&](utm_|ref=|…)`) 只作用于 query;
+ * 规则集合未减少, 语义更精确。
+ */
 fun isAdRequest(url: String): Boolean {
     val uri = try { java.net.URI(url) } catch (_: Exception) { return false }
     val host = uri.host ?: return false
@@ -50,5 +69,9 @@ fun isAdRequest(url: String): Boolean {
         if (rulePath == null) return@any true
         path == "/$rulePath" || path.startsWith("/$rulePath/")
     }
-    return domainHit || AD_PATTERNS.any { it.containsMatchIn(url) }
+    if (domainHit) return true
+    val hostPath = host + path
+    if (AD_PATH_PATTERNS.any { it.containsMatchIn(hostPath) }) return true
+    val query = uri.rawQuery ?: return false
+    return AD_QUERY_PATTERNS.any { it.containsMatchIn(query) }
 }
