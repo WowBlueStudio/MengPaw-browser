@@ -9,9 +9,21 @@ import android.content.Context
 class BrowserPrefs(ctx: Context) {
     private val p = ctx.getSharedPreferences("mp_browser", Context.MODE_PRIVATE)
 
+    /**
+     * 广告拦截开关（**默认关闭** — 用户定案 2026-10-14）。
+     *
+     * 起因: trekbikes.com 的「顶栏分类菜单点不开」+「整屏 hero 挤成窄条」两项报障，
+     * 现场实测（同规格模拟器 + 平板文件通道）显示**站点自身的接口/配置请求失败**
+     * （`Failed to fetch toggle configuration … Error: Network Error`）导致站点降级，
+     * 而干扰源无法在小成本内 100% 定位（跨域 XHR 失败不产生 WebView 级错误）。
+     * 按用户口径：**兼容优先，广告拦截默认停用**，需要时在设置里手动开启。
+     *
+     * 存储键由 `adblock` 改为 `adblock_v2`：**不迁移旧值**，保证已装设备也拿到新默认
+     * （用户若要拦截，设置里一键开启即可，开关本身不变）。
+     */
     var adBlockEnabled: Boolean
-        get() = p.getBoolean("adblock", true)
-        set(v) = p.edit().putBoolean("adblock", v).apply()
+        get() = p.getBoolean("adblock_v2", false)
+        set(v) = p.edit().putBoolean("adblock_v2", v).apply()
 
     /** Ordered list of enabled engine keys (comma-separated). */
     var engineKeys: List<String>

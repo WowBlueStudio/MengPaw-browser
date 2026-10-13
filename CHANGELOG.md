@@ -3,90 +3,177 @@
 > 浏览器独立仓库版本记录。版本单点: `gradle.properties` 的 `mengpaw.browser.version`。
 > 许可: AGPL-3.0-or-later OR LicenseRef-Commercial。
 
-## 未发布 (Unreleased) — 累计修改
+## 未发布 (Unreleased)
 
-> 按用户指令：**累计改动，不急着出 APK**。以下条目已实现 + 单测通过 + 已提交，未构建发行包、未发版。
-> 当前开发版本号 `0.10.5`（`versionCode` 派生 1005）；作为**测试包**装到平板验证用，未打 tag、未推送。
+> 暂无累计修改 —— 下一版发布前，新改动在这里累积。
 
-### 新增
+## v0.10.5 (2026-10-14) — 站点兼容性攻坚：形态自适应 UA + 能力补齐 + 加载时机修复
 
-- **形态自适应 UA：平板请求桌面版网页，手机请求移动版网页**
-  - Android WebView 默认 UA 带 `Mobile` 标记 ⇒ 平板屏再宽，站点也给移动版（窄栏、触屏样式）。
-    现在平板改用桌面 UA（Windows 标识 + **与当前 WebView 引擎同主版本**，避免
-    「UA 说 Chrome 120、引擎是 Chrome 108」触发站点能力探测异常）
-  - 手机保持系统默认 UA（`WebSettings.getDefaultUserAgent`，含 `Mobile`）
-  - **判定口径是设备类别不是当前宽度**：用 `smallestScreenWidthDp >= 600`（Android 官方平板判据），
-    不是 `screenWidthDp >= 600` —— 否则**手机横屏**（宽度也 ≥600dp）会被误判成平板而请求桌面版
-  - 幂等应用：WebView 创建时 + `AndroidView.update` 都调用 `applyUserAgent`，旋转/折叠屏展开/
-    分屏改变形态后自动纠正；**已加载页面需刷新**才按新 UA 重新请求
-  - 纯函数 `web/UserAgent.kt` + `web/UserAgentTest.kt` 4 条守护
-    （平板不含 Mobile / 手机不改写 UA / 主版本跟随引擎 / 两形态互不污染）
+> 起因: 用户报障 trekbikes.com「顶栏分类菜单点不开 / 整屏首屏挤成窄条 / 浮层弹窗全部没加载」。
+> 本轮产出 = 一处已定论的误伤修复（推广条隐藏列表收窄）+ 把「像浏览器」该有的能力补齐
+> （上传/摄录/定位/全屏/下载）+ 布局就绪后再加载 + 形态自适应 UA + 诊断双通道。
+> **站点自身那两项报障仍未定位到可修代码点**，如实记在文末「已知问题」。
+> 顶栏「点击即转」旋转指示器属 v0.10.4（见下一节），本版未改动。
 
-### 修复（站点兼容性 — 用户报障「trekbikes.com 顶栏分类菜单点不开 / 100% 高容器异常 / 浮层弹窗全部没加载」）
+### 新增 — 形态自适应 UA（平板请求桌面版，手机请求移动版）
 
-- **「打开 App」推广条拦截列表大幅收窄（很可能是浮层消失的直接原因）**
+- **为什么**: Android WebView 默认 UA 带 `Mobile` 标记，平板屏再宽，站点也只给移动版
+  （窄栏、触屏样式）；而「UA 说 Chrome 120、引擎却是 Chrome 108」又会触发站点能力探测异常。
+- 平板（`smallestScreenWidthDp >= 600`，Android 官方平板判据）改用桌面 UA：Windows 标识 +
+  **与当前 WebView 引擎同主版本**；手机保持系统默认 UA（`WebSettings.getDefaultUserAgent`，含 `Mobile`）。
+  - 判据取**设备类别**而非当前宽度：手机**横屏**宽度同样 ≥600dp，按宽度判会被误判成平板而请求桌面版。
+- 幂等应用：WebView 创建时 + `AndroidView.update` 都调用 `applyUserAgent`，
+  旋转 / 折叠屏展开 / 分屏改变形态后自动纠正；**已加载页面需刷新**才按新 UA 重新请求。
+- 设置里新增三选一（自动 / 始终桌面版 / 始终移动版，`data/UaMode.kt`）——
+  站点不适配时可一键覆盖、刷新生效，不必等发版。
+- 守护: 纯函数 `web/UserAgent.kt` + `UserAgentTest` 4 条（平板不含 Mobile / 手机不改写 UA /
+  主版本跟随引擎 / 两形态互不污染）；`UaModeTest` 4 条。
+
+### 新增 — 浏览器能力补齐（对齐 Chrome/Edge，此前点了没反应）
+
+- **文件上传**: `onShowFileChooser` + `ActivityResultContracts` 启动器 —— 此前站点任何
+  "上传图片/附件"按钮点了毫无反应；启动失败时显式 `onReceiveValue(null)`，站点 form 不再永久 pending。
+- **摄像头 / 麦克风**: `onPermissionRequest`（`getUserMedia`）→ 按需申请 `CAMERA`/`RECORD_AUDIO`
+  运行时权限后再 `grant`；**非摄录类资源（MIDI 等）改为 deny**（旧实现静默全授予）。
+- **定位**: `onGeolocationPermissionsShowPrompt` → 申请 `ACCESS_FINE/COARSE_LOCATION` 后
+  `invoke(origin, granted, retain=true)` —— `retain=false` 会让 `watchPosition` 反复弹系统授权框。
+- **视频全屏**: `onShowCustomView` / `onHideCustomView` + 黑底全屏容器 + 沉浸式 +
+  返回键优先退出 + `onDestroy` 清理、`exitFullscreen` 幂等 —— 此前全屏按钮无效。
+- **文件下载**: `setDownloadListener` → 系统 `DownloadManager` 落到公共下载目录
+  （带 Cookie/UA、通知栏进度、Toast 反馈），并顺带清除加载态 ——
+  此前"下载尺寸表/说明书"点了没反应，加载指示器还留在转圈。
+  - `blob:` / `data:` 不能交 `DownloadManager`（按 scheme 分流，否则必抛 `IllegalArgumentException`）：
+    改走 `fetch → readAsDataURL → 分片取回 → 解码` 落盘；文件名消毒（剔路径分隔符/控制字符、截断 120 字符）。
+
+### 修复 — 站点兼容性（用户报障「浮层弹窗全部没加载」等）
+
+- **「打开 App」推广条隐藏列表大幅收窄（很可能是浮层消失的直接原因）**
   `HIDE_APP_BANNER_JS` 旧列表含 `[class*=floatBtn]`、`[class*=bottom-bar]`、`[class*=bottomBar]`、
   `[class*=openIn]`、`[class*=float-app]`、`[class*=native-app]`、`[class*=mobile-app]`、
   `[class*=goToApp]`、`[class*=appLink]` 等**通用类名子串**，并一律 `display:none!important`。
-  正常站点的**正当浮层**（浮动购物车/客服/底部操作条/弹窗内层）大量使用这些类名 ⇒ 被我们隐藏。
+  正常站点的**正当浮层**（浮动购物车 / 客服 / 底部操作条 / 弹窗内层）大量使用这些类名 ⇒ 被我们隐藏。
   现在只保留语义明确指向 App 推广的选择器。
-- **广告拦截不再拦功能性查询参数**：查询规则去掉 `ref=` 与 `sponsored`（站点内部跳转/接口
+- **广告拦截不再拦功能性查询参数**: 查询规则去掉 `ref=` 与 `sponsored`（站点内部跳转/接口
   `?ref=nav`、`?ref=header` 极常见），只保留纯追踪参数（`utm_*`/`gclid`/`fbclid`/`msclkid`/`yclid`/`adid`）。
-  被误拦会让站点的导航/浮层数据取不到，表现为「分类菜单点不开、浮层不出现」这类局部 JS 初始化失败。
-- **站点 `window.open` / `target=_blank` 弹层现在有承接**：此前未开
-  `setSupportMultipleWindows(true)` ⇒ 站点用 window.open 打开的浮层/快捷查看/登录窗**静默消失**。
-  现在用一次性探针 WebView 取到真实 URL 后**开新标签**（与 Chrome 行为一致）；
-  达标签上限时给出 Toast 而不是静默丢弃。
+  被误拦会让站点的导航/浮层数据取不到，表现就是「分类菜单点不开、浮层不出现」这类局部 JS 初始化失败。
+- **站点 `window.open` / `target=_blank` 弹层现在有承接**: 此前未开
+  `setSupportMultipleWindows(true)` ⇒ 站点用 `window.open` 打开的浮层 / 快捷查看 / 登录窗**静默消失**。
+  现在用一次性探针 WebView 取到真实 URL 后**开新标签**（与 Chrome 行为一致），达标签上限时给 Toast。
+  探针加固：开 JS + **3s 超时销毁** + 单次守卫 + **只接管主帧**（子 iframe 外链不再被当弹窗开标签）。
+- **第三方 Cookie 默认允许**（对齐 Chromium/Edge）: 旧实现显式 `false` 比 Chrome/Edge 更严，
+  依赖第三方 Cookie 的 CMP / 标签管理器 / 嵌入式登录会让站点局部 JS 初始化失败。
+  同时放行 `blob:` 导航（站点自身的导出/预览/下载），仅拦 `javascript:` / `data:` / `content:`。
+- **补 `layoutAlgorithm = TEXT_AUTOSIZING`**（Chromium 官方「像浏览器」三件套第三项）。
+  注意：它只影响排版与字号，**不修 vh**，不要当 100vh 矮条的根因。
 
-### 新增（兼容性能力补齐 — 对齐 Edge/Chrome）
+### 修复 — 加载时机：布局就绪后再加载（100vh 首屏挤成"窄条"）
 
-- **文件上传**：实现 `WebChromeClient.onShowFileChooser` + `ActivityResultContracts` 启动器
-  （`BrowserActivity.launchFileChooser`）—— 此前站点任何"上传图片/附件"按钮点了毫无反应。
-- **摄像头 / 麦克风**：实现 `onPermissionRequest`（`getUserMedia`）→ 按需申请
-  `CAMERA`/`RECORD_AUDIO` 运行时权限后再 `grant`；非摄录类资源（MIDI 等）直接授予。
-- **定位**：实现 `onGeolocationPermissionsShowPrompt` → 申请 `ACCESS_FINE/COARSE_LOCATION`
-  后按结果 `invoke(origin, granted, retain=false)`（不长期记住，避免静默追踪）。
-- **视频全屏**：实现 `onShowCustomView` / `onHideCustomView` + `BrowserActivity.enterFullscreen/
-  exitFullscreen`（黑底全屏容器 + 沉浸式 + 返回键优先退出；`onDestroy` 清理）—— 此前全屏按钮无效。
-- **文件下载**：新增 `setDownloadListener` → 系统 `DownloadManager` 落到公共下载目录
-  （带 Cookie/UA、通知栏进度、Toast 反馈），并顺带清除加载态 —— 此前"下载尺寸表/说明书"
-  类按钮点了没反应，还会把加载指示器留在转圈。
-- **站点形态开关（桌面版/移动版）**：设置里新增三选一（自动 / 始终桌面版 / 始终移动版，
-  `data/UaMode.kt` + `UaModeTest`）。默认"自动"= 平板桌面版、手机移动版；站点不适配时
-  用户可一键覆盖、刷新生效，不必等发版。
+- **根因（有 Chromium 官方与社区证据）**: Chromium CL 175043002 明确 *"a zero height … is
+  frequently how a new WebView is first laid out"*；社区案例显示 JS 早于 View 初始化会拿到退化的
+  320×240 或 `innerHeight == 0`。**在 WebView 尚未布局（0×0）时就开始加载**，站点会在
+  `innerHeight ≈ 0` 下算好每个 `100vh` 段并缓存，之后尺寸恢复也不再重算。本仓库两处会触发：
+  - `AndroidView` 的 factory 阶段就 `loadUrl`（当时 WebView 是 0×0）；
+  - **非激活标签**用 `alpha(0f)+height(0.dp)` 排布，却仍各自加载自己的 URL。
+- 修复:
+  - 新增 `web/WebViewLoadTiming.kt`：`loadWhenLaidOut(url)` —— 尺寸非 0 直载；否则等
+    `OnGlobalLayoutListener` 首次测得非 0 尺寸；**300ms 兜底只重试、绝不在 0 尺寸下加载**
+    （首版兜底会无条件加载，等于旧行为，是调研复核发现的漏洞），重试 10 次仍无尺寸则放弃并记日志。
+  - `BrowserContentArea`：非激活标签不加载，**变为激活时**才补加载；待办导航（含
+    `browser.preload` 指向后台标签）也**只在该标签激活时消费**，否则保持待办。
+  - `browser.preload` 语义澄清：只**登记 URL**，加载推迟到切到该标签时（后台标签没有真实尺寸）。
+- **视口自证日志**: 每次 `onPageFinished`（以及 +1s）打一行**真实视口数值**，站点拿到的
+  `innerHeight` / `clientHeight` / `visualViewport` / `scale` 一目了然，不必再猜。
 
-### 修复（Trek 首页 100vh 首屏挤成"窄条" — 根因：**在 0 尺寸下加载页面**）
+### 变更 — 容器高度忽略键盘高度
 
-根因（有 Chromium 官方与社区证据）: Chromium CL 175043002 明确 *"a zero height … is frequently
-how a new WebView is first laid out"*；StackOverflow 高票答案与 `innerHeight` 早读为 0 的案例表明，
-**在 WebView 尚未布局（0×0）时就开始加载**，站点会在 `innerHeight ≈ 0` 下算好每个 `100vh` 段并缓存，
-之后尺寸恢复也不再重算（查过且 Edge 无此问题）。本仓库两处会触发：
+- 根布局去掉 `imePadding()`，`AndroidManifest` 的 `windowSoftInputMode` 由 `adjustResize` 改
+  **`adjustNothing`**：键盘弹出时 WebView 保持全高，站点 `100vh` / `height:100%` 容器不再被压矮，
+  也避免键盘收起后残留内边距。
 
-- `AndroidView` 的 factory 阶段就 `loadUrl`（当时 WebView 是 0×0）；
-- **非激活标签**用 `alpha(0f)+height(0.dp)` 排布，却仍各自加载自己的 URL。
+### 变更 — 广告拦截默认关闭（用户定案 2026-10-14，兼容优先）
 
-修复：
-- 新增 `web/WebViewLoadTiming.kt`：`loadWhenLaidOut(url)` —— 尺寸非 0 直载；否则等
-  `OnGlobalLayoutListener` 首次测得非 0 尺寸；**300ms 兜底只重试、绝不在 0 尺寸下加载**
-  （首版兜底会无条件加载，是调研复核发现的漏洞），重试 10 次仍无尺寸则放弃并记日志。
-- `BrowserContentArea`：非激活标签不加载；**变为激活时**才补加载；待办导航（含
-  `browser.preload` 指向后台标签）也**只在该标签激活时消费**，否则保持待办。
-- `web/BrowserChromeClient.kt` / `FileDownloader.kt` / `WebErrorPage.kt`：把 605 行的
-  `WebViewFactory.kt` 拆到每文件 ≤400 行（现 355 行），并为探针 WebView 开 JS +
-  3s 超时销毁 + 主帧过滤、`blob:`/`data:` 下载改走 FileReader 取回（DownloadManager 只收 http/https）、
-  文件选择失败补 `onReceiveValue(null)`、非摄录类权限请求一律 deny、定位 `retain=true`。
-- 配置对齐 Chromium 官方"像浏览器"三件套：补 `layoutAlgorithm = TEXT_AUTOSIZING`
-  （只影响排版/字号，**不修 vh**，勿当根因）。
-- 新增**视口自证日志**：每次 `onPageFinished`（以及 +1s）打一行
-  `[mp] viewport(...) {"ih":…,"ch":…,"vv":…}` 到 `MpWebConsole`，可直接
-  `adb logcat -s MpWebConsole` 看站点拿到的真实视口数值，不必再猜。
-- `browser.preload` 语义澄清：只**登记 URL**，加载推迟到切到该标签时（后台标签没有真实尺寸）。
+- 起因: trekbikes.com 报障排查中，站点自身的接口/配置请求失败（跨域 XHR `Network Error`，
+  不产生 WebView 级错误），干扰源无法在小成本内 100% 定位 ⇒ 按用户口径
+  **兼容优先，广告拦截默认停用**，需要时在设置里手动开启。
+- 存储键 `adblock` → **`adblock_v2`，不迁移旧值**（保证已装设备也拿到新默认）；开关本身不变。
 
+### 重构 — `WebViewFactory.kt` 605 → 382 行（红线 ≤400）
 
-- **站点 JS 报错可见**：注入 `error` / `unhandledrejection` 钩子（幂等，`onPageStarted` +
-  `onPageFinished` 双注入），并经 `WebChromeClient.onConsoleMessage` 把 WARNING 以上打到
-  **`MpWebConsole`** tag ⇒ 现场可直接 `adb logcat -s MpWebConsole` 看到站点报了什么错，
-  不必再靠猜（多窗口探针的 URL、错误行号都在里面）。
+- 拆出 `web/BrowserChromeClient.kt` / `web/FileDownloader.kt` / `web/WebErrorPage.kt` /
+  `web/WebViewLoadTiming.kt`（逐字迁出、行为不变；拆出的文件最大 283 行）。
+- 为探针 WebView 开 JS + 3s 超时销毁 + 主帧过滤；`onConsoleMessage` 只吞 WARNING 以上
+  （不再吞掉站点 `console.log`）。
+
+### 诊断能力（本版保留，便于继续追查站点兼容问题）
+
+- **双通道 `web/DiagLog.kt`**: 同时写 logcat（`Log.w`，tag `MpWebConsole`）与
+  `/sdcard/Android/data/com.mengpaw.browser/files/MpDiag/probe.log`（应用外部私有目录，
+  **无需存储权限**，ADB 可直接 `cat`）。起因: 实测 Honor 设备**抑制第三方应用的 logcat 输出**，
+  `adb logcat -s MpWebConsole` 一条都读不到（`isMinifyEnabled=false`，不是 R8 剥离）。
+  单文件 256KB 上限、超限截断保留后半段、单线程执行器、IO 全 try/catch。
+- **探针内容**: 视口（`innerHeight`/`clientHeight`/`visualViewport`/`scale`/`devicePixelRatio`）、
+  断点（`min-width:1024px`、`hover`、`pointer:coarse`）、hero 实测高度与**计算 min-height**、
+  顶栏菜单触发元素 `aria-expanded` 与 `.nav-scroll-wrapper` 可见性、hero CSS 规则审计
+  （已应用样式表里所有 `fixed-overslider` 规则）、导航 tier-0 / tier-1 计数。
+- **站点 JS 报错可见**: 注入 `error` / `unhandledrejection` 钩子（`onPageStarted` + `onPageFinished`
+  双注入、幂等），并把 WARNING 以上 `console` 消息一并落到 `MpWebConsole` / 探针文件。
+- **子资源失败与拦截留痕**: `onReceivedError` 记子资源失败（code + URL）、`onReceivedHttpError`
+  记 403/404 等、广告拦截命中记**真实 URL**。
+
+### 已知问题（未定位到可修代码点 —— 必须显式记录）
+
+- **trekbikes.com 两项报障仍未修复、也未定位到可修代码点**:
+  ① 整屏 hero 被挤成窄条；② 顶栏分类菜单点不开。
+- 已排除（均有实测证据）:
+  - **广告拦截** —— 默认已关仍复现（本版起拦截默认停用）；
+  - **UA** —— 移动版 / 桌面版 UA 下表现一致；
+  - **视口与缩放** —— 实测 `innerHeight = 818`、`scale = 1`，不是 vh 计算问题；
+  - **CSS 激活链** —— 5 个 CSS 均为 `stylesheet` 态（不是 `preload` 未激活）；
+  - **MQ 双括号语法** —— 站点 `matchMedia('((min-width:640px))')` 不是病因；
+  - **WebView 引擎版本** —— 引擎更旧的模拟器里站点反而能初始化。
+- 现场证据（模拟器 WebView 实测，`MpDiag/probe.log` 原文）:
+  - **计算值 `getComputedStyle(.fixed-overslider).minHeight = 0px`、实测高 195px**，
+    而 CSSOM 里**确实存在**命中该元素的规则
+    `.trek-marquee.large .fixed-overslider, …{min-height:60vh}`（站点另有一条
+    `calc(90vh - 60px)` 变体）⇒ **规则在、但没落到该元素上**，不是 vh 算错；
+  - 同一次采样里 `mqAncestor = "trek-marquee large bg-gray-700"`（`.large` 类在）、
+    5 个 CSS 全是 `stylesheet` 态、`tier0:8 / tier1:7 / expanded:38`（导航 DOM 已渲染）；
+    而**平板上**同一探针给出 `navTrig:""`（触发元素不存在）⇒ 两台设备的完成度不同，
+    指向**加载完成度 / 站点接口状态**，而非浏览器配置；
+  - 站点接口报 `Failed to fetch toggle configuration … Error: Network Error`（跨域 XHR，不产生 WebView 级错误）；
+  - 被拦 / 失败请求: google-analytics（我方规则拦，可放行）、trekcdn azureedge `ERR_SOCKET_NOT_CONNECTED`、
+    forms.trekbikes.com JSONP `ERR_BLOCKED_BY_ORB`。
+- 倾向性结论（**推断，未证实**）: 站点自身 JS/CSS 初始化链没走通（依赖第三方 / 跨域资源），
+  不是浏览器里某个单点可修。下一步该做的是**站点侧真实产物 + 一次真机采样**，而不是继续改浏览器配置。
+
+### 未验证项（Agent 无设备，需用户真机确认）
+
+- 形态自适应 UA: 平板拿到桌面版页面、手机（含**横屏**）仍是移动版；旋转 / 折叠后刷新生效。
+- 设置里的「自动 / 始终桌面版 / 始终移动版」覆盖后刷新生效。
+- 文件上传、摄像头/麦克风、定位、视频全屏、文件下载（含 `blob:`/`data:`）逐项实测。
+- 键盘弹出 / 收起后容器高度不变（不再被压矮、无残留内边距）。
+- 「布局就绪后再加载」在慢站 / 分屏 / 后台标签切换下的表现（不再出现矮条）。
+- 站点 `window.open` 弹层确实开在新标签里；达标签上限时给 Toast 而不是静默丢弃。
+- 探针日志在真机上可读（`MpDiag/probe.log`）且不会无限增长（256KB 截断）。
+- 诊断日志**常开**且含站点 URL 与部分页面数据，属排障用途；后续版本可考虑改为开关控制。
+
+### 发行
+
+- APK: **`mengpaw-browser-v0.10.5-release.apk`**（10.88 MB，`versionCode 1005`，签名
+  `CN=MengPaw, OU=Studio, O=WowBlue, L=Shenzhen, ST=Guangdong, C=CN`；
+  SHA-256 `ac188da513b45f275a832f57164782da108de0e54ffd5caacd19508167a392e6`）。
+- 版本四点已同步: `gradle.properties` = `0.10.5`、`build.gradle.kts` 的 `.orElse("0.10.5")`、
+  `versionCode` 派生 = **1005**、产物经 `aapt2 dump badging` 复核。
+- 双远端 tag `v0.10.5` + 双平台 Release（Gitee 先行、GitHub 随后），均附上表 APK。
+- 测试: `:mengpaw-browser:testDebugUnitTest` **77 用例全绿**
+  （v0.10.4 基线 69 → 73（+`UserAgentTest` 4）→ **77**（+`UaModeTest` 4））。
+- 本版**保留**站点兼容诊断探针（双通道日志、视口/hero/导航采样、子资源失败与 HTTP 错误上报），
+  便于继续追查 trekbikes.com 那两项未定位问题；后续版本可改为设置开关控制。
+
+### 仓库内务
+
+- 撤出误入库的第三方站点抓取资源（`_trek/`）与模拟器取证产物（`_emu/`）并加入 `.gitignore`。
+- `AGENTS.md` 固化工作方式：并行子代理优先 + 公域知识优先（用户定案）。
 
 ## v0.10.4 (2026-10-13) — 载入反馈：顶栏「点击即转」的旋转指示器
 
