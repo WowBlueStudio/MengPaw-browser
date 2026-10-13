@@ -46,10 +46,14 @@ fun BrowserTabDialog(
         title = {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("标签页 (${tabs.size})")
-                if (tabs.size < maxTabs) {
-                    IconButton(onClick = onNewTab) {
-                        Icon(Icons.Default.Add, "新建标签", tint = ThemeColors.brand)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (tabs.size < maxTabs) {
+                        IconButton(onClick = onNewTab) {
+                            Icon(Icons.Default.Add, "新建标签", tint = ThemeColors.brand)
+                        }
                     }
+                    // v0.10.3: 补可见关闭入口（此前 confirm/dismiss 都是空槽，只能点外部/返回键）
+                    TextButton(onClick = onDismiss) { Text("关闭") }
                 }
             }
         },

@@ -14,7 +14,12 @@ import android.webkit.WebViewClient
  *
  * 不复用 createWebView (网页浏览) 与 createMdViewerWebView — 预览页经 loadUrl(file://cache)
  * 宿主, pdf.js 需经 XHR 读取 file:///android_asset 下的 worker / cmaps 子资源,
- * 故必须开 allowFileAccessFromFileURLs / allowUniversalAccessFromFileURLs (API30+ 仅告警仍生效)。
+ * 故必须开 allowFileAccessFromFileURLs (file→file)。
+ *
+ * v0.10.3: `allowUniversalAccessFromFileURLs` 关掉 —— 它允许 file:// 页面读取**任意来源**
+ * (http/https) 的响应, 对预览器毫无必要 (只需 file→file); 关闭后恶意 PDF 内脚本无法借
+ * 文件宿主页跨源读取外部内容。注: targetSdk 30+ 上该设置已被 WebView 忽略, 此处只对
+ * Android 10 及以下的设备生效, 属纵深防御。
  */
 @SuppressLint("SetJavaScriptEnabled")
 fun createPdfViewerWebView(context: Context): WebView = WebView(context).apply {
@@ -23,7 +28,7 @@ fun createPdfViewerWebView(context: Context): WebView = WebView(context).apply {
     settings.allowFileAccess = true
     // file:// 宿主页读取其他 file:// 子资源 (pdf.js worker/cmaps)
     try { settings.allowFileAccessFromFileURLs = true } catch (_: Exception) { }
-    try { settings.allowUniversalAccessFromFileURLs = true } catch (_: Exception) { }
+    try { settings.allowUniversalAccessFromFileURLs = false } catch (_: Exception) { }
     // 缩放由 viewer.js 内部控制 (按钮/滚动窗口), 关闭 WebView 层 pinch 双重缩放
     settings.builtInZoomControls = false
     settings.displayZoomControls = false

@@ -18,25 +18,34 @@ import java.io.FileOutputStream
 const val MAX_SCREENSHOT_PIXELS = 8 * 1024 * 1024
 
 /**
- * Java↔JavaScript bridge enabling Agent to control the browser.
+ * Kotlin 侧浏览器操作门面（Agent 命令 → 真实 WebView）。
  *
- * Registered via [WebView.addJavascriptInterface] as "MengPaw".
- * All methods return JSON strings for consistent parsing by Agent.
+ * v0.10.3 文档纠正: 本类**不再**经 `addJavascriptInterface` 暴露给网页 —— 该注册在
+ * v0.10.2 已因安全原因移除（任意网页一行 JS 即可调内部能力），现在**只由 Kotlin 侧
+ * （插件命令/状态桥）持有并调用**。`@JavascriptInterface` 注解为历史遗留，勿据此恢复注册。
  *
- * v0.32.x (400 行文件拆分批次 2): JS 脚本常量拆至 [BrowserScripts.kt],
+ * v0.32.x（400 行拆分批次 2）: JS 脚本常量拆至 [BrowserScripts.kt]，
  * 全页缝合截图/坐标交互拆至 [FullPageScreenshotter.kt]。
- * 注意: @JavascriptInterface 方法必须保留在本类实例上 (addJavascriptInterface
- * 注册对象), 拆分仅限实现委托与脚本常量。
+ * v0.10.3（批次 3）: JS 求值/转义管道拆至 [JsEvaluator.kt]。
  */
 class BrowserBridge(
     private val webView: WebView,
     private val onScreenshot: ((Bitmap) -> String)? = null
 ) {
 
+    /** JS 求值管道（eval/unquote/escape/jsonLiteral）。 */
+    private val js = JsEvaluator(webView)
+
+    /** 加载/等待语义（waitForSelector/waitForLoad/goto）。 */
+    private val waits = LoadWaits(webView, js)
+
+    /** 会话数据（Cookie / Web Storage）。 */
+    private val session = SessionOps(webView, js)
+
     private val screenshotter = FullPageScreenshotter(
         webView = webView,
         onScreenshot = onScreenshot,
-        unquoteJs = ::unquoteJs,
+        unquoteJs = js::unquote,
         viewportFallback = ::screenshot
     )
 
@@ -77,83 +86,28 @@ class BrowserBridge(
     }
 
     /**
-     * Wait for an element matching the CSS selector to appear in the DOM.
-     * Polls every 100ms up to the specified timeout (default 5000ms).
+     * 等待元素出现（Kotlin 侧轮询，实现见 [LoadWaits.waitForSelector]）。
      * Returns JSON: {"ok":true,"found":true} or {"ok":false,"error":"timeout"}
-     *
-     * 修复: 原实现 setTimeout 异步检查后立即返回 '__PENDING__' — evaluateJavascript
-     * 回调拿到的永远是中间态，真实结果永久丢失。改用 Kotlin 侧轮询: 每次调用都是
-     * 同步检查（JS 立即返回），间隔 100ms 重试；轮询间隙页面事件循环正常运转，
-     * 异步渲染的元素（SPA/网络回包后出现的节点）能被观察到。JS 内忙等则会饿死
-     * 页面自身 JS，异步出现的元素永远不会出现，故不采用。
      */
     @JavascriptInterface
-    fun waitForSelector(selector: String, timeoutMs: Int = 5000): String {
-        val safe = escapeJs(selector)
-        val total = timeoutMs.coerceIn(0, 30000)
-        val deadline = System.currentTimeMillis() + total
-        while (true) {
-            val r = evalJs(waitForSelectorCheckScript(safe))
-            val obj = try { org.json.JSONObject(r) } catch (_: Exception) { null }
-            if (obj?.optBoolean("found", false) == true) return r
-            val err = obj?.optString("error")
-            // 非"未找到"的错误（选择器非法/求值超时/webview 分离等）→ 如实返回，不再重试
-            if (err != null && err != "not found yet") return r
-            if (System.currentTimeMillis() >= deadline) {
-                return """{"ok":false,"error":"timeout: selector not found after ${total}ms: $safe"}"""
-            }
-            try { Thread.sleep(100) } catch (e: InterruptedException) {
-                Thread.currentThread().interrupt()
-                return """{"ok":false,"error":"interrupted"}"""
-            }
-        }
-    }
+    fun waitForSelector(selector: String, timeoutMs: Int = 5000): String =
+        waits.waitForSelector(selector, timeoutMs)
 
-    /**
-     * Get all cookies for the current URL, or set/clear cookies.
-     */
+    /** 当前 URL 的全部 Cookie（实现见 [SessionOps.cookies]，JSON 由 JSONObject 构造）。 */
     @JavascriptInterface
-    fun cookies(): String {
-        return try {
-            val cm = android.webkit.CookieManager.getInstance()
-            val url = webView.url ?: ""
-            val cookie = cm.getCookie(url)
-            """{"ok":true,"cookies":"${cookie ?: ""}"}"""
-        } catch (e: Exception) { """{"ok":false,"error":"${e.message}"}""" }
-    }
+    fun cookies(): String = session.cookies()
 
-    /** Set a cookie. Usage: bridge.cookieSet("name", "value", "example.com") */
-    fun cookieSet(name: String, value: String, domain: String? = null): String {
-        return try {
-            val cm = android.webkit.CookieManager.getInstance()
-            val url = domain ?: (webView.url ?: "")
-            cm.setCookie(url, "$name=$value; Path=/")
-            cm.flush()
-            """{"ok":true}"""
-        } catch (e: Exception) { """{"ok":false,"error":"${e.message}"}""" }
-    }
+    /** 设置 Cookie。Usage: browser.cookies.set <name> <value> [domain] */
+    fun cookieSet(name: String, value: String, domain: String? = null): String =
+        session.cookieSet(name, value, domain)
 
-    /** Clear all cookies. */
-    fun cookieClear(): String {
-        return try {
-            val cm = android.webkit.CookieManager.getInstance()
-            cm.removeAllCookies(null)
-            cm.flush()
-            """{"ok":true}"""
-        } catch (e: Exception) { """{"ok":false,"error":"${e.message}"}""" }
-    }
+    /** 清空全部 Cookie（破坏性：注销所有站点登录态）。 */
+    fun cookieClear(): String = session.cookieClear()
 
-    /** Get/set/clear localStorage or sessionStorage. */
+    /** Get/set/clear localStorage or sessionStorage（实现见 [SessionOps.storage]）。 */
     @JavascriptInterface
-    fun storage(type: String, op: String, key: String? = null, value: String? = null): String {
-        val storageType = if (type == "session") "sessionStorage" else "localStorage"
-        return when (op) {
-            "get" -> evalJs(storageGetScript(storageType, escapeJs(key ?: "")))
-            "set" -> evalJs(storageSetScript(storageType, escapeJs(key ?: ""), escapeJs(value ?: "")))
-            "clear" -> evalJs(storageClearScript(storageType))
-            else -> """{"ok":false,"error":"Unknown op: $op (use get/set/clear)"}"""
-        }
-    }
+    fun storage(type: String, op: String, key: String? = null, value: String? = null): String =
+        session.storage(type, op, key, value)
 
     /** Get element attribute value. */
     @JavascriptInterface
@@ -222,79 +176,19 @@ class BrowserBridge(
         """.trimIndent())
     }
 
-    // ── Internal ────────────────────────────────────────────────────────
+    // ── Internal (JS 求值管道见 JsEvaluator — 400 行拆分批次 3) ──────────
 
-    /**
-     * Execute JS and return result. Uses a short timeout to avoid
-     * blocking WebView's JavaBridge thread pool indefinitely.
-     *
-     * SAFETY: Called from @JavascriptInterface (JavaBridge thread).
-     * A long block here can exhaust the WebView thread pool → crash.
-     * Timeout is set to 2s max; on timeout, returns error JSON.
-     */
-    private fun evalJs(script: String): String {
-        // __mp calls are pure JS sync (<10ms, no DOM traversal) — fast path handled by caller scripts
-        val latch = java.util.concurrent.CountDownLatch(1)
-        var result = """{"ok":false,"error":"timeout"}"""
-        try {
-            val posted = webView.post {
-                try {
-                    webView.evaluateJavascript(script) { r ->
-                        result = unquoteJs(r)
-                        latch.countDown()
-                    }
-                } catch (e: Exception) {
-                    result = """{"ok":false,"error":"${escapeJs(e.message ?: "unknown")}"}"""
-                    latch.countDown()
-                }
-            }
-            if (!posted) {
-                // WebView handler is gone (destroyed or shutting down)
-                return """{"ok":false,"error":"webview detached"}"""
-            }
-            val ok = latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
-            if (!ok) {
-                // Timeout — main thread is likely busy. Don't block longer.
-                // The evaluateJavascript callback will still fire, but we
-                // can't wait for it without risking thread pool exhaustion.
-                return """{"ok":false,"error":"evaluation timeout (main thread busy)"}"""
-            }
-        } catch (e: InterruptedException) {
-            Thread.currentThread().interrupt()
-            result = """{"ok":false,"error":"interrupted"}"""
-        } catch (e: Exception) {
-            result = """{"ok":false,"error":"${escapeJs(e.message ?: "unknown")}"}"""
-        }
-        return result
-    }
+    /** 执行 JS 并返回结果（同步等待，上限 2s；见 [JsEvaluator.eval]）。 */
+    private fun evalJs(script: String): String = js.eval(script)
 
-    /** Remove the JSON-string quoting that evaluateJavascript adds. */
-    private fun unquoteJs(raw: String): String {
-        var s = raw.trim()
-        if (s == "null") return """{"ok":false,"error":"JS returned null"}"""
-        if (s.startsWith("\"") && s.endsWith("\"")) {
-            s = s.substring(1, s.length - 1)
-            s = s.replace("\\\"", "\"")
-                .replace("\\\\", "\\")
-                .replace("\\n", "\n")
-                .replace("\\t", "\t")
-        }
-        return s
-    }
+    /** 去掉 evaluateJavascript 回调自带的一层 JSON 引号。 */
+    private fun unquoteJs(raw: String): String = js.unquote(raw)
 
-    /** Escape a string for safe embedding in a JS string literal. */
-    private fun escapeJs(s: String): String =
-        s.replace("\\", "\\\\")
-         .replace("'", "\\'")
-         .replace("\"", "\\\"")
-         .replace("\n", "\\n")
-         .replace("\r", "")
+    /** 转义为 JS 字面量内容（含 U+2028/U+2029）。 */
+    private fun escapeJs(s: String): String = js.escape(s)
 
-    /** Convert a Kotlin string to a JS JSON string literal. */
-    private fun String.toJsonLiteral(): String =
-        "'" + this.replace("\\", "\\\\")
-               .replace("'", "\\'")
-               .replace("\n", "\\n") + "'"
+    /** 转成可嵌入的 JS 字符串字面量。 */
+    private fun String.toJsonLiteral(): String = js.jsonLiteral(this)
 
     // ── Persistent bridge (speed optimization) ──────────────────────────
 
@@ -338,74 +232,75 @@ class BrowserBridge(
         return evalJs(diffScript())
     }
 
-    /**
-     * Capture a screenshot of the current visible viewport.
-     * Uses [View.draw] on a Canvas-backed Bitmap (API 26+ compatible).
-     * Saves to DataPaths.SCREENSHOTS and returns the file path.
+    /** 缓冲截图（page.screenshot 视口分支）。
+     *
+     * v0.10.3 修复:
+     * ① **主线程约束**: 旧实现直接在命令线程读 `webView.width/height` 并 `draw()` —
+     *    WebView 的这些调用必须在主线程（同文件 loadUrl 已 post，此处却漏了）；
+     * ② **落盘校验**: 写盘后校验文件存在且非空，否则如实 ok:false —— 旧实现无条件回
+     *    ok:true + 路径，Agent 读不到文件时无法区分「成功」与「文件丢了」。
      */
     @JavascriptInterface
     fun screenshot(): String {
         return try {
-            // Use View.draw() instead of deprecated capturePicture() (removed in API 33+)
-            val bitmap = Bitmap.createBitmap(webView.width, webView.height, Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(bitmap)
-            webView.draw(canvas)
-            val path = onScreenshot?.invoke(bitmap) ?: run {
-                val dir = File(BrowserStorage.screenshotsDir())
-                dir.mkdirs()
-                val file = File(dir, "browser_${System.currentTimeMillis()}.png")
-                FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
-                file.absolutePath
-            }
-            bitmap.recycle()
-            """{"ok":true,"path":"$path","width":${webView.width},"height":${webView.height}}"""
-        } catch (e: Exception) {
-            """{"ok":false,"error":"${e.message?.replace("\"", "\\\"")}"}"""
-        }
-    }
-
-    /**
-     * 精确等待页面加载（page.goto 语义，替代 browser.nav 的固定 1.5s）。
-     *
-     * - `domcontentloaded`: progress==100 且 readyState interactive/complete；
-     * - `networkidle`: 加载完成后额外 300ms 无新网络活动（近似实现，WebView 无标准 API）。
-     * 超时返回错误 JSON（不抛异常，命令层如实转述）。
-     */
-    fun waitForLoad(mode: String, timeoutMs: Int = 30000): String {
-        val deadline = System.currentTimeMillis() + timeoutMs.coerceIn(1000, 60000)
-        val networkIdle = mode == "networkidle"
-        var progress = webView.progress
-        var readyState = ""
-        while (System.currentTimeMillis() < deadline) {
-            progress = webView.progress
-            val r = evalJs("(function(){return document.readyState;})()")
-            readyState = r.trim().trim('"')
-            val loaded = progress >= 100 && (readyState == "complete" || readyState == "interactive")
-            if (loaded) {
-                if (networkIdle) {
-                    // 近似 networkidle: 加载完成后再观察 300ms 网络稳定
-                    try { Thread.sleep(300) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-                    if (webView.progress >= 100) {
-                        return """{"ok":true,"mode":"networkidle","progress":100,"readyState":"$readyState"}"""
+            var path = ""
+            var w = 0
+            var h = 0
+            val latch = java.util.concurrent.CountDownLatch(1)
+            val posted = webView.post {
+                try {
+                    w = webView.width
+                    h = webView.height
+                    val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val canvas = android.graphics.Canvas(bitmap)
+                    webView.draw(canvas)
+                    path = onScreenshot?.invoke(bitmap) ?: run {
+                        val dir = File(BrowserStorage.screenshotsDir())
+                        dir.mkdirs()
+                        val file = File(dir, "browser_${System.currentTimeMillis()}.png")
+                        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        file.absolutePath
                     }
-                } else {
-                    return """{"ok":true,"mode":"domcontentloaded","progress":100,"readyState":"$readyState"}"""
+                    bitmap.recycle()
+                } finally {
+                    latch.countDown()
                 }
             }
-            try { Thread.sleep(100) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+            if (!posted) return """{"ok":false,"error":"webview detached"}"""
+            if (!latch.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                return """{"ok":false,"error":"screenshot timeout (main thread busy)"}"""
+            }
+            verifySaved(path)?.let { return it }
+            """{"ok":true,"path":"${esc(path)}","width":$w,"height":$h,"verified":true}"""
+        } catch (e: Exception) {
+            """{"ok":false,"error":"${esc(e.message ?: "unknown")}"}"""
         }
-        return """{"ok":false,"error":"load timeout after ${timeoutMs}ms","progress":$progress,"readyState":"$readyState"}"""
     }
 
-    /** 导航 + 精确等待（page.goto）。loadUrl 必须主线程。 */
-    fun goto(url: String, waitMode: String = "domcontentloaded", timeoutMs: Int = 30000): String {
-        try {
-            webView.post { webView.loadUrl(url) }
+    /** 产出文件校验：不存在/空文件视为失败（Agent 无法区分「成功」与「文件丢了」的根治）。 */
+    private fun verifySaved(path: String): String? {
+        return try {
+            val f = File(path)
+            if (!f.exists()) """{"ok":false,"error":"output file missing: ${esc(path)}"}"""
+            else if (f.length() <= 0L) """{"ok":false,"error":"output file empty: ${esc(path)}"}"""
+            else null
         } catch (e: Exception) {
-            return """{"ok":false,"error":"${e.message?.replace("\"", "\\\"")}"}"""
+            """{"ok":false,"error":"output verify failed: ${esc(e.message ?: "unknown")}"}"""
         }
-        return waitForLoad(waitMode, timeoutMs)
     }
+
+    /** JSON 字符串字段转义（路径/错误信息可能含引号或反斜杠）。 */
+    private fun esc(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "")
+
+    /**
+     * 精确等待页面加载（page.goto 语义）。实现见 [LoadWaits.waitForLoad]。
+     */
+    fun waitForLoad(mode: String, timeoutMs: Int = 30000): String = waits.waitForLoad(mode, timeoutMs)
+
+    /** 导航 + 精确等待（page.goto）。实现见 [LoadWaits.goto]。 */
+    fun goto(url: String, waitMode: String = "domcontentloaded", timeoutMs: Int = 30000): String =
+        waits.goto(url, waitMode, timeoutMs)
 
     /** 派发按键事件（page.key）。特殊键走映射表，单字符按 ASCII。 */
     @JavascriptInterface

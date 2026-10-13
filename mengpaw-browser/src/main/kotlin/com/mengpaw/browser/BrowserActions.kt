@@ -106,8 +106,14 @@ internal fun browserActions(
     val loadInTab: (Int, String) -> Unit = { id, url ->
         val wv = webViewMap[id]
         if (wv != null) {
-            try { wv.onResume() } catch (_: Exception) {}
-            wv.loadUrl(url)
+            // v0.10.3: 已销毁/已脱离的 WebView 调 loadUrl 会抛 IllegalStateException —
+            // 包一层兜底并回落到待办导航 (map 中不应出现已销毁实例, 属纵深防御)
+            try {
+                wv.onResume()
+                wv.loadUrl(url)
+            } catch (e: Exception) {
+                setPendingLoad(PendingLoad(id, url, nextSeq()))
+            }
         } else {
             setPendingLoad(PendingLoad(id, url, nextSeq()))
         }
@@ -141,7 +147,11 @@ internal fun browserActions(
                 destroyWebViewSafe(wv); webViewMap.remove(id)
                 setTabs(remaining); setActiveTabId(remaining.first().id); setIsColdStart(false)
             } else if (!isColdStart()) {
-                webViewMap.values.forEach { destroyWebViewSafe(it) }; webViewMap.clear()
+                // v0.10.3: 先摘快照再清空, 最后销毁 — 旧实现边遍历 map 边 removeView,
+                // 在被遍历集合/视图树上同时改动 (Compose 容器可能同步回调), 有崩溃风险
+                val doomed = webViewMap.values.toList()
+                webViewMap.clear()
+                doomed.forEach { destroyWebViewSafe(it) }
                 setTabs(listOf(TabState(id = 0))); setActiveTabId(0); setIsColdStart(true)
             } else {
                 try {

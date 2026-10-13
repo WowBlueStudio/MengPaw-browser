@@ -14,7 +14,26 @@ plugins {
 // v0.10.0: PDF 预览 — pdf.js 渲染 (放大/缩小/文字选取), 网络 .pdf URL + 本地 file/content
 // v0.10.1: 项目定位纠正 — 与 MengPaw Shell 脱钩 (中性独立项目, 仅保留手册同步+经验共维护)
 // v0.10.2: 地址栏/导航修复 (获焦全选+待办导航+编辑中不回写) + 明文 http 放行 + 控件/按键普查
-val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.2").get()
+// v0.10.3: 三层闭环+九维审计全量修复 (21 条 browser.* 命令可达/截图落盘校验/书签与会话 JSON/
+//          路径穿越/输出校验/暗色关闭/标签挂起/版本号派生)
+val browserVersion: String = providers.gradleProperty("mengpaw.browser.version").orElse("0.10.3").get()
+
+/**
+ * versionCode 由 versionName 派生（v0.10.3 起）— 消灭「漏改字面量」这一类事故。
+ *
+ * 旧实现是手写字面量（AGENTS 亦自述"必须手改, 漏改则客户端识别不出更新"），
+ * 漏改时 versionName 照常自增、APK 能装但更新链路判不出新旧（静默不触发更新）。
+ * 派生规则 `major*10000 + minor*100 + patch`：单调递增（minor 每 +1 覆盖 100 个 patch），
+ * 且与历史版本兼容（0.10.2 → 1002 > 旧字面量 18）。
+ */
+fun derivedVersionCode(version: String): Int {
+    val parts = version.trim().split(".", "-").mapNotNull { it.toIntOrNull() }
+    val major = parts.getOrElse(0) { 0 }
+    val minor = parts.getOrElse(1) { 0 }
+    val patch = parts.getOrElse(2) { 0 }
+    require(minor in 0..99 && patch in 0..99) { "版本号格式须为 X.Y.Z 且 Y/Z ≤ 99: $version" }
+    return major * 10000 + minor * 100 + patch
+}
 
 // 共享地基版本 — 主仓库 kernel tag, JitPack 构件 (com.github.WowBlueStudio.MengPaw:<module>:<tag>)
 val foundationGroup: String = "com.github.WowBlueStudio.MengPaw"
@@ -28,7 +47,7 @@ android {
         applicationId = "com.mengpaw.browser"
         minSdk = 26
         targetSdk = 35
-        versionCode = 18
+        versionCode = derivedVersionCode(browserVersion)
         versionName = browserVersion
     }
 

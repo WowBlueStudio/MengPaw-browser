@@ -7,6 +7,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import com.mengpaw.browser.plugin.BuiltinBrowserPlugin
+import com.mengpaw.browser.plugin.commandNameHint
+import com.mengpaw.browser.plugin.resolveCommandKey
 import com.mengpaw.browser.util.BrowserStorage
 import com.mengpaw.kernel.cli.ExecutionContext
 import com.mengpaw.kernel.cli.ExecutionResult
@@ -71,8 +73,12 @@ class RunCommandService : Service() {
         }
         val plugin = BuiltinBrowserPlugin.shared
             ?: return "浏览器未就绪（请先打开 MP 浏览器再调用）"
-        val handler = plugin.commands[cmdName]
-            ?: return "未知浏览器命令: $cmdName（page.* / browser.* 命令集）"
+        // v0.10.3 P0 修复: 注册键是短名 (tabs/tab.open/…)，手册与命令行写的是 Agent 形态
+        // (browser.tabs/browser.tab.open) — 此前直接 plugin.commands[cmdName] 精确查表，
+        // 导致 21 条 browser.* 命令「过白名单但查不到」= 对 Agent 完全不可达。改为统一解析。
+        val key = resolveCommandKey(plugin.commands, cmdName)
+            ?: return "未知浏览器命令: $cmdName\n可用命令 (Agent 形态):\n" + commandNameHint(plugin.commands)
+        val handler = plugin.commands.getValue(key)
         val ctx = ExecutionContext(sessionId = "am", userId = "am")
         return try {
             val result: ExecutionResult = runBlocking { handler(tokens.drop(1), ctx) }
@@ -106,19 +112,33 @@ class RunCommandService : Service() {
         return tokens
     }
 
-    /** 输出落盘（决策 §六: 限制公共目录 MengPaw/ 下，禁止系统路径）。 */
+    /**
+     * 输出落盘（决策 §六: 限制公共目录 MengPaw/ 下，禁止系统路径）。
+     *
+     * v0.10.3 P1 修复: 原实现用字符串前缀判断（`startsWith(PUBLIC_BASE + "/")`），
+     * `/storage/emulated/0/MengPaw/../Download/x` 可经 `..` 逃逸到公共目录之外；
+     * 改为 canonicalFile 规范化后按路径前缀比较（同时覆盖 `..`、重复斜杠与符号链接）。
+     */
     private fun writeOutput(outputPath: String, content: String) {
         try {
-            val normalized = outputPath.replace('\\', '/')
-            val allowedBase = BrowserStorage.PUBLIC_BASE.replace('\\', '/')
-            if (!normalized.startsWith(allowedBase + "/") && normalized != allowedBase) {
+            val base = File(BrowserStorage.PUBLIC_BASE).canonicalFile
+            val target = File(outputPath.replace('\\', '/')).canonicalFile
+            val inside = target == base || target.toPath().startsWith(base.toPath())
+            if (!inside) {
+                android.util.Log.e(
+                    "BrowserActivity",
+                    "输出路径越界，已拒绝写入: ${outputPath.take(160)} (仅允许 ${base.path}/)"
+                )
                 return
             }
-            val file = File(normalized)
-            file.parentFile?.mkdirs()
-            file.writeText(content)
-        } catch (_: Exception) {
-            // 落盘失败静默 — 调用方读不到时经命令结果自行发现
+            target.parentFile?.mkdirs()
+            target.writeText(content)
+            if (target.length() <= 0 && content.isNotEmpty()) {
+                android.util.Log.e("BrowserActivity", "输出落盘为空: ${target.path}")
+            }
+        } catch (e: Exception) {
+            // 落盘失败必须留痕（旧实现完全静默，Shell 侧读到空文件却无从判断）
+            android.util.Log.e("BrowserActivity", "输出落盘失败: ${outputPath.take(160)}", e)
         }
     }
 }

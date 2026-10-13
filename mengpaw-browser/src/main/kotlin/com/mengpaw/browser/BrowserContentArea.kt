@@ -71,12 +71,20 @@ internal fun ColumnScope.BrowserContentArea(
     pendingLoad: PendingLoad? = null,
     onPendingLoadConsumed: () -> Unit = {}
 ) {
-    // 激活标签必须处于 resume 态: onTrimMemory 会对所有 WebView onPause, 而本应用此前
-    // 从不 onResume — 页面加载后可能停止渲染 (表现为「点了没反应」)。
+    // v0.10.3: 非激活标签挂起 (此前只做 alpha(0)/height(0) 隐藏, WebView 仍处 resume —
+    // 后台标签的音视频继续播放/持续渲染, 白耗内存与电量)。激活项恢复 resume。
     LaunchedEffect(activeTabId, tabs.size, isColdStart) {
         if (!isColdStart) {
-            try { webViewMap[activeTabId]?.onResume() } catch (_: Exception) { }
+            webViewMap.forEach { (id, wv) ->
+                try { if (id == activeTabId) wv.onResume() else wv.onPause() } catch (_: Exception) { }
+            }
         }
+    }
+
+    // 已消费的待办导航序号 — update 块可能因重组被多次调用, 用序号去重避免重复导航。
+    // v0.10.3: 提升到分支之外 (旧实现放在 else 分支内, 冷启动↔常规渲染切换时去重基线丢失)
+    val consumedSeq = androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(-1L)
     }
 
     if (isColdStart) {
@@ -112,10 +120,6 @@ internal fun ColumnScope.BrowserContentArea(
                         }
                     }
                 }
-            }
-            // 已消费的待办导航序号 — update 块可能因重组被多次调用, 用序号去重避免重复导航
-            val consumedSeq = androidx.compose.runtime.remember {
-                androidx.compose.runtime.mutableStateOf(-1L)
             }
             tabs.forEach { tab ->
                 val isActive = tab.id == activeTabId

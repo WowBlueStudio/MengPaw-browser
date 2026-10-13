@@ -1,7 +1,9 @@
 # MengPaw_Browser_skills.md — 浏览器命令手册 (am 桥调用方专用)
 
 > 适用对象: 经 am 桥控制 MengPaw.Browser APK 的**同签名调用方**(MengPaw Shell 是其中之一)。
-> 版本: v0.10.1 · 2026-09-10 · 本文件覆盖浏览器全部命令面与操作技巧。
+> 版本: v0.10.3 · 2026-10-13 · 本文件覆盖浏览器全部命令面与操作技巧。
+> v0.10.3 要点: 命令行请写 `browser.*` 完整名字(短名会被 am 桥白名单拒绝);
+> `page.screenshot --view` 可用; `browser.dialog.accept/dismiss` 不支持自动应答(见 §3.2)。
 > 9880 HTTP 桥与开放模式已退役(决策 #7), 第三方接入不再支持, 仅同签名应用可调。
 > 开发者视角的架构细节见同目录 `MengPaw.Browser 开发文档.md`。
 >
@@ -62,12 +64,16 @@ am startservice -n com.mengpaw.browser/.service.RunCommandService \
 
 ### 3.2 browser.* — 保留命令
 
-- 标签页: `tabs` / `tab` / `tab.open` / `tab.close` / `tab.all`(最多 4 标签)
-- 效率: `inject` / `diff` / `preload`
-- 等待: `wait` / `wait.nav`
-- 存储/Cookie: `storage` / `cookies` / `cookies.set` / `cookies.clear`
-- 对话框: `dialog.accept` / `dialog.dismiss`
-- 查询/设置: `visible` / `enabled` / `viewport` / `userAgent` / `version`
+> v0.10.3: 命令行里请写**带前缀的完整名字**（`browser.tabs`、`browser.tab.open` …）。
+> 短名（`tabs`/`tab.open`）在插件内部仍被接受，但 am 桥的命令白名单要求 `page.`/`browser.` 前缀，
+> 写短名会被直接拒绝；写完整名字两侧都能解析（v0.10.3 修复了「完整名字查不到、短名被拒绝」的双向死路）。
+
+- 标签页: `browser.tabs` / `browser.tab` / `browser.tab.open` / `browser.tab.close` / `browser.tab.all`（上限 5 标签，与 UI 同源）
+- 效率: `browser.inject` / `browser.diff` / `browser.preload`
+- 等待: `browser.wait` / `browser.wait.nav`（真实等待加载状态，超时如实失败）
+- 存储/Cookie: `browser.storage` / `browser.cookies` / `browser.cookies.set` / `browser.cookies.clear`（清空为**破坏性**：注销所有站点登录态）
+- 对话框: `browser.dialog.accept` / `browser.dialog.dismiss` — **不支持自动应答**（JS 对话框由系统 UI 处理，脚本无法代按）。需要自动确认时用 `page.eval` 预先覆盖 `window.confirm/window.alert`，或改走不触发对话框的路径；这两条命令会如实返回失败原因。
+- 查询/设置: `browser.visible` / `browser.enabled` / `browser.viewport` / `browser.userAgent` / `browser.version`
 
 ## 4. 半自动循环(推荐工作流)
 

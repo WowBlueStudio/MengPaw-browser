@@ -3,6 +3,81 @@
 > 浏览器独立仓库版本记录。版本单点: `gradle.properties` 的 `mengpaw.browser.version`。
 > 许可: AGPL-3.0-or-later OR LicenseRef-Commercial。
 
+## v0.10.3 (2026-10-13) — 三层闭环+九维审计全量修复（命令面可达/数据完整性/落盘校验）
+
+### 修复 (P0 — Agent 完全不可达/数据丢失/崩溃)
+
+- **21 条 `browser.*` 命令对 Agent 完全不可达（双向死路）**
+  - 注册表用短名（`tabs`/`tab.open`/`cookies.set`…），手册与 am 桥用 Agent 形态（`browser.tabs`…）；
+    写完整名 → 过白名单但查不到注册键（「未知浏览器命令」）；写短名 → 被前缀白名单拒绝。
+    `page.*` 22 条不受影响，故一直未被发现。
+  - 新增 `plugin/CommandNames.kt`：`resolveCommandKey` 两种形态都接受（精确优先，其次剥 `browser.`）；
+    失败提示直接列出全部可用命令名。新增 **`CommandSurfaceTest`** 把「文档教的命令名」
+    与「注册表实际命令名」钉死（含幽灵引用扫描 + 手册覆盖率断言）——四源同步从此有守护。
+- **收藏夹/标签会话用分隔符拼接 → 静默数据损坏**：书签以 `,`、标签会话以 `|` 拼接存储，
+  URL 含分隔符即被拆成垃圾项，且星标/取消收藏对该 URL 永久失效。改为 JSON 编码
+  （`StringListCodec`，兼容旧数据读取）。
+- **`browser.tab.open` / `browser.preload` 谎报成功**：`openTab` 返回 Unit，未真正打开
+  （无 WebView/达上限）也回「正在打开」。现在返回失败原因，命令层如实转失败；
+  Agent 路径同样走 `PendingLoad` 待办通道。
+- **返回键兜底分支遍历中销毁 WebView**（先摘快照 → 清空 map → 再 destroy）；
+  `loadInTab` 对已销毁 WebView 的 `loadUrl` 加兜底回落到待办导航。
+- **标签关闭回调空表 `first()`**（桌面标签栏路径）→ 空表兜底 + `firstOrNull`。
+
+### 修复 (P1 — 静默失败/静默丢数据/状态不一致)
+
+- **截图落盘不再无条件成功**: `BrowserBridge.screenshot()` 写盘后校验文件存在且非空
+  （`verified:true`），失败如实 `ok:false`；`page.screenshot` 不再把 `ok:false` 当成功回传。
+- **截图/元素截图改为主线程执行**（旧实现在命令线程读 `webView.width` 并 `draw()`，属未定义行为）；
+  `page.goto` 校验 `post` 返回值（WebView 已销毁时不再空等超时，直接报 `webview detached`）。
+- **`browser.wait.nav` 不再只 sleep**: 改为真实等待加载状态（`waitForLoad`），超时如实失败。
+- **`browser.dialog.accept/dismiss` 诚实化**: 旧实现注入 `window.__mpDialogCb` —— 全仓库从未定义，
+  是恒成功的空操作。现如实返回「不支持自动应答」并给替代方案（`page.eval` 预覆盖）。
+- **`page.screenshot --view` 落地**（手册与排障流程一直在教，实现里却没有）；
+  `--max-height` 生效（此前被静默忽略，只认 pref）。
+- **输出落盘路径穿越修复**: `writeOutput` 由字符串前缀改为 `canonicalFile` 路径包含判断，
+  `/MengPaw/../Download/x` 之类不再逃逸；落盘失败不再静默（Log 留痕）。
+- **Agent 桥切回主线程**: `switchTab/openTab/closeTab` 经 `Handler(mainLooper)` 执行
+  （命令跑在后台线程，直接写 Compose 状态/碰 WebView 属越界）；`BuiltinBrowserPlugin.maxTabs`
+  与 UI 同源（此前 tab 命令硬编码 0..3，第 5 个标签对 Agent 不可见）。
+- **`browser.tab.all` 不再张冠李戴**: 切到目标标签后等其加载完（最多 8s）再读**该标签自己的**
+  WebView；标题改 JSON 解析（旧实现用正则抠引号）。
+- **JS 转义链闭合**: `escapeJs` 补 U+2028/U+2029（JS 行终止符）；`cookies()` 返回体改
+  `JSONObject` 构造（Cookie 值含引号会让 Agent 收到非法 JSON）。
+- **广告拦截不再误伤子资源**: 域名/路径特征只匹配 `host+path`（不含 query/fragment），
+  `utm_*` 特征只匹配 query。
+- **历史记录**: 持久化移出主线程（不再每次导航在主线程重写 500 条单 key）；
+  「清空全部」后列表立即刷新（旧实现关窗重开仍显示旧条目，用户视角「清空没用」）。
+- **暗色模式关闭生效**: 显式移除已注入的 `#mp-dark` 样式（旧实现只置 prefs，同页残留暗色）。
+- **非激活标签挂起**: 切走的标签 `onPause()`（此前只 alpha/height 隐藏，后台标签仍在渲染与播放）。
+- **PDF 预览缓存清理**（每次预览写 cacheDir 且从不删除）+ 所有分支 `disconnect()`。
+- **图片下载**: 巨图按 `inSampleSize` 降采样（防 OOM）、异常路径 `recycle()`、
+  同名自动加后缀（不再静默覆盖）、按原格式选 PNG/JPEG（半透明不再变黑）。
+- **网络错误提示可执行**: DNS 失败/超时/重置/证书错误都给出下一步（换协议重试、查网络、
+  用系统浏览器验证），不再只陈述原因。
+- **明文 http 站点成功/失败状态收口**: `.md`/`.pdf` 拦截分支不再留下永久加载态。
+- **`versionCode` 由 `versionName` 派生**（`major*10000+minor*100+patch`）：
+  消灭「手改字面量漏改 → 客户端识别不出更新」这一类事故（AGENTS 自述的历史坑）。
+
+### 修复 (P1 — 代码质量/红线)
+
+- **`BrowserBridge.kt` 496 → 391 行**（400 行红线）：JS 求值管道拆 `JsEvaluator`、
+  加载等待拆 `LoadWaits`、会话数据拆 `SessionOps`；类注释纠正（`addJavascriptInterface`
+  注册已于 v0.10.2 移除，本类只由 Kotlin 侧持有 —— 旧注释会诱导恢复暴露面）。
+
+### 真机自测待做 (Agent 未验证 — 无设备连接, 需用户确认)
+
+- `browser.*` 21 条命令经 am 桥可达（例: `browser.tabs`、`browser.tab.open 0 https://example.com`）
+- `page.screenshot --view` 出视口图；`page.screenshot` 返回体含 `verified:true`
+- `browser.wait.nav 5000` 在慢站上真实等待；`browser.dialog.accept` 返回「不支持自动应答」
+- 收藏含 `,` 的链接后重启：星标仍在、点击可取消
+- 关闭暗色模式立即恢复亮色；切走标签后后台不再播放音频
+- 清空历史后弹窗列表立即变空
+
+### 发行
+
+- 详见文末"### 发行"节（APK/签名/测试数）
+
 ## v0.10.2 (2026-10-13) — 地址栏转到修复 + 网站打不开修复 + 控件/按键普查
 
 ### 修复 (P0 — 用户报障)

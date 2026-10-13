@@ -21,11 +21,11 @@ data class BrowserTab(
 /**
  * Built-in browser plugin providing browser.* CLI commands for Agent.
  *
- * ## Multi-tab control (4 tabs max)
+ * ## Multi-tab control (上限见 [maxTabs]，与 UI 单一来源)
  *   browser.tabs                — list all tabs
- *   browser.tab <N>             — switch to tab N
- *   browser.tab.open <N> <url>  — open URL in tab N (auto-creates if needed)
- *   browser.tab.close <N>       — close tab N
+ *   browser.tab &lt;N&gt;             — switch to tab N
+ *   browser.tab.open &lt;N&gt; &lt;url&gt;  — open URL in tab N (auto-creates if needed)
+ *   browser.tab.close &lt;N&gt;       — close tab N
  *   browser.tab.all             — extract content from ALL tabs in one call
  *
  * v0.32.x (400 行文件拆分批次 2): 命令实现按组拆至
@@ -36,13 +36,17 @@ data class BrowserTab(
  * 语义命令组（22 条）。v0.8.0 Phase 3 去重后 browser.* 保留 23 条（被 page.* 覆盖
  * 的命令已删，决策 #4）— 合计 45 条命令；batch/q 过渡期保留后亦去重（决策 #4），
  * browser.* 现为 21 条 — 合计 43 条命令。
+ *
+ * v0.10.3: 注册键为**短名**（`tabs`/`tab.open`/…），而 Agent 侧命名是带前缀的
+ * `browser.*` — 解析统一走 [resolveCommandKey]（两种形态都接受），并新增
+ * [agentCommandName] / [commandNameHint] 供错误提示与守护测试使用。
  * 本类保留构造参数 + commands 聚合 + companion 开关, 公开 API 不变。
  */
 class BuiltinBrowserPlugin(
     private val webViewProvider: () -> WebView?,
     private val tabInfoProvider: () -> List<BrowserTab> = { emptyList() },
     private val tabSwitcher: (Int) -> Unit = {},
-    private val tabOpener: (Int, String) -> Unit = { _, _ -> },
+    private val tabOpener: (Int, String) -> String? = { _, _ -> null },
     private val tabCloser: (Int) -> Unit = {}
 ) {
     private val ctx = BrowserCommandContext(
@@ -58,6 +62,13 @@ class BuiltinBrowserPlugin(
     companion object {
         /** Screenshot height provider set by BrowserActivity (page.screenshot --full 分段上限)。 */
         @JvmStatic var screenshotMaxHeight: () -> Int = { 15000 }
+
+        /**
+         * 标签页上限 provider（由 BrowserActivity 注入，与 BrowserApp 的 maxTabs 同源）。
+         * v0.10.3: 此前 tab 命令把范围硬编码成 0..3（4 个），与 UI 的 5 个不一致 —
+         * 第 5 个标签对 Agent 不可见/不可切换到。
+         */
+        @JvmStatic var maxTabs: () -> Int = { 5 }
 
         /** am 桥共享实例 — BrowserActivity 初始化，RunCommandService 复用（半自动武器 Phase 2）。 */
         @Volatile

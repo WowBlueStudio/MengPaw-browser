@@ -132,11 +132,15 @@ fun BrowserApp(
     SideEffect {
         val activity = ctx as? BrowserActivity ?: return@SideEffect
         activity.webViewMapRef = webViewMap
+        // 标签上限单一来源: 命令层 (browser.tab/tab.open 的范围校验与表头) 与 UI 同源
+        com.mengpaw.browser.plugin.BuiltinBrowserPlugin.maxTabs = { maxTabs }
         activity.browserState = BrowserActivity.createStateBridge(
             tabs = { tabs }, setTabs = { tabs = it },
             activeTabId = { activeTabId }, setActiveTabId = { activeTabId = it },
             setIsColdStart = { isColdStart = it },
-            webViewMap = webViewMap, maxTabs = maxTabs
+            webViewMap = webViewMap, maxTabs = maxTabs,
+            setPendingLoad = { pendingLoad = it },
+            nextSeq = { navSeq += 1; navSeq }
         )
     }
 
@@ -266,7 +270,10 @@ fun BrowserApp(
                     onTabClose = { id ->
                         destroyWebViewSafe(webViewMap.remove(id))
                         tabs = tabs.filter { it.id != id }
-                        if (activeTabId == id) activeTabId = tabs.first().id
+                        // v0.10.3: 空表兜底（旧实现直接 first()，只剩一个标签时该路径会抛异常）
+                        if (tabs.isEmpty()) {
+                            tabs = listOf(TabState(id = 0)); activeTabId = 0; isColdStart = true
+                        } else if (activeTabId == id) activeTabId = tabs.first().id
                     },
                     onNewTab = actions.openNewTab
                 )
@@ -331,7 +338,16 @@ fun BrowserApp(
                 // Settings dialog
                 showSettings = overlays.showSettings, onDismissSettings = { overlays.showSettings = false },
                 adBlockEnabled = adBlockEnabled, onAdBlockToggled = { adBlockEnabled = it; prefs.adBlockEnabled = it },
-                darkMode = darkMode, onDarkModeToggled = { darkMode = it; prefs.darkMode = it; webViewMap[activeTabId]?.reload() },
+                darkMode = darkMode, onDarkModeToggled = {
+                    darkMode = it
+                    prefs.darkMode = it
+                    // v0.10.3: 关闭时显式移除已注入的暗色样式（此前只 reload，同页残留暗色）
+                    val wv = webViewMap[activeTabId]
+                    if (wv != null) {
+                        if (it) wv.evaluateJavascript(DARK_MODE_CSS, null)
+                        else wv.evaluateJavascript(DARK_MODE_REMOVE_JS, null)
+                    }
+                },
                 searchEngine = searchEngine, onDefaultEngineChanged = { searchEngine = it },
                 onOpenCoolApk = {
                     val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://www.coolapk.com/apk/com.google.android.webview"))

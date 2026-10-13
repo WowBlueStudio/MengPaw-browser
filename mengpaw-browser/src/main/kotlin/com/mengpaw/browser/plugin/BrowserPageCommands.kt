@@ -56,12 +56,15 @@ internal class BrowserPageCommands(private val ctx: BrowserCommandContext) {
         if (args.isEmpty()) return ExecutionResult.fail("Usage: browser.preload <url>", errorCode = ErrorCodes.ERR_INVALID_INPUT)
         val url = args[0]
         val tabs = ctx.tabInfoProvider()
-        // Find first non-active empty tab, or use tab 3
+        // Find first non-active empty tab, or use the last allowed tab id
         val target = tabs.firstOrNull { !it.isActive && it.url.isBlank() }?.id
             ?: tabs.firstOrNull { !it.isActive }?.id
-            ?: 3
-        ctx.tabOpener(target, url)
-        return ExecutionResult.ok("后台预加载中 (标签页$target): $url\n使用 browser.tab $target 切换查看。")
+            ?: (ctx.maxTabs - 1)
+        // v0.10.3: 如实回报（此前无论是否真的打开都回「后台预加载中」）
+        val err = ctx.tabOpener(target, url)
+        return if (err == null) ExecutionResult.ok(
+            "后台预加载中 (标签页$target): $url\n使用 browser.tab $target 切换查看。")
+        else ExecutionResult.fail(err, errorCode = ErrorCodes.ERR_INTERNAL)
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -78,13 +81,19 @@ internal class BrowserPageCommands(private val ctx: BrowserCommandContext) {
 
     private suspend fun waitNav(args: List<String>, exeCtx: ExecutionContext): ExecutionResult {
         val timeout = args.firstOrNull()?.toIntOrNull() ?: 10000
-        val wv = ctx.webViewProvider() ?: return ctx.noBrowser()
-        val b = ctx.bridge ?: return ctx.noBrowser()
+        ctx.webViewProvider() ?: return ctx.noBrowser()
+        val bridge = ctx.bridge ?: return ctx.noBrowser()
+        // v0.10.3 P0 修复: 原实现先取 wv/bridge 却从不使用, 只 delay(timeout) 就回
+        // 「Navigation wait completed」—— 不等待任何导航 (Agent 据此认为已跳转, 后续
+        // 全在旧页面上操作)。改为真实等待加载状态 (domcontentloaded), 超时如实失败。
         return try {
-            // Use a simple delay-based approach for navigation wait
-            kotlinx.coroutines.delay(timeout.toLong())
-            ExecutionResult.ok("Navigation wait completed (${timeout}ms)")
-        } catch (e: Exception) { ErrorCollector.report(e, "BuiltinBrowser.waitNav"); ExecutionResult.fail("${e.message}", errorCode = ErrorCodes.ERR_INTERNAL) }
+            val r = bridge.waitForLoad("domcontentloaded", timeout)
+            if (r.contains("\"ok\":true")) ExecutionResult.ok("Navigation wait completed\n$r")
+            else ExecutionResult.fail("导航等待未满足: $r", errorCode = ErrorCodes.ERR_INTERNAL)
+        } catch (e: Exception) {
+            ErrorCollector.report(e, "BuiltinBrowser.waitNav")
+            ExecutionResult.fail("${e.message}", errorCode = ErrorCodes.ERR_INTERNAL)
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -110,20 +119,22 @@ internal class BrowserPageCommands(private val ctx: BrowserCommandContext) {
 
     // ═══════════════════════════════════════════════════════════════════
     // Dialog commands
+    //
+    // v0.10.3 诚实化: 旧实现注入 `if(window.__mpDialogCb){...}` —— 全仓库从未定义
+    // `__mpDialogCb`，WebChromeClient 也未接管 onJsAlert/onJsConfirm/onJsPrompt，
+    // 因此是**恒成功的空操作**（Agent 以为已确认，页面上的 confirm 仍挂着）。
+    // 本应用不提供 JS 对话框队列（接管会吞掉人类用户看到的系统弹窗），故如实失败并给替代路径。
     // ═══════════════════════════════════════════════════════════════════
 
-    private suspend fun dialogAccept(args: List<String>, exeCtx: ExecutionContext): ExecutionResult {
-        val wv = ctx.webViewProvider() ?: return ctx.noBrowser()
-        return try {
-            wv.post { wv.evaluateJavascript("(function(){try{if(window.__mpDialogCb){window.__mpDialogCb(true,'');delete window.__mpDialogCb;return'ok';}}catch(e){}})()", null) }
-            ExecutionResult.ok("Dialog accepted")
-        } catch (e: Exception) { ErrorCollector.report(e, "BuiltinBrowser.dialogAccept"); ExecutionResult.fail("${e.message}", errorCode = ErrorCodes.ERR_INTERNAL) }
-    }
-    private suspend fun dialogDismiss(args: List<String>, exeCtx: ExecutionContext): ExecutionResult {
-        val wv = ctx.webViewProvider() ?: return ctx.noBrowser()
-        return try {
-            wv.post { wv.evaluateJavascript("(function(){try{if(window.__mpDialogCb){window.__mpDialogCb(false);delete window.__mpDialogCb;return'ok';}}catch(e){}})()", null) }
-            ExecutionResult.ok("Dialog dismissed")
-        } catch (e: Exception) { ErrorCollector.report(e, "BuiltinBrowser.dialogDismiss"); ExecutionResult.fail("${e.message}", errorCode = ErrorCodes.ERR_INTERNAL) }
-    }
+    private suspend fun dialogAccept(args: List<String>, exeCtx: ExecutionContext): ExecutionResult =
+        dialogUnsupported("accept")
+
+    private suspend fun dialogDismiss(args: List<String>, exeCtx: ExecutionContext): ExecutionResult =
+        dialogUnsupported("dismiss")
+
+    private fun dialogUnsupported(action: String): ExecutionResult = ExecutionResult.fail(
+        "本浏览器不支持自动应答 JS 对话框 (dialog.$action): 对话框由系统 UI 处理，脚本无法代为点击。" +
+            "替代方案: 用 page.eval 预先覆盖 window.confirm/window.alert，或改走不触发对话框的交互路径。",
+        errorCode = ErrorCodes.ERR_INVALID_INPUT
+    )
 }

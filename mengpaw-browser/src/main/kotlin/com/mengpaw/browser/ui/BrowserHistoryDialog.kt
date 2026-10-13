@@ -10,7 +10,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,7 +34,10 @@ fun BrowserHistoryDialog(
 ) {
     if (!visible) return
 
-    val entries = remember { historyStore.all() }
+    // v0.10.3: entries 改为可刷新 state —— 旧实现 remember{} 快照，"清空全部" 后复开
+    // 弹窗仍显示已清空的条目（用户视角：清空按钮没用）。
+    var entries by remember(visible) { mutableStateOf(historyStore.all()) }
+    var cleared by remember(visible) { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -47,7 +53,12 @@ fun BrowserHistoryDialog(
         text = {
             LazyColumn {
                 if (entries.isEmpty()) {
-                    item { Text("暂无历史记录", color = ThemeColors.textSecondary, modifier = Modifier.padding(16.dp)) }
+                    item {
+                        Text(
+                            if (cleared) "已清空历史记录" else "暂无历史记录",
+                            color = ThemeColors.textSecondary, modifier = Modifier.padding(16.dp)
+                        )
+                    }
                 }
                 items(entries.take(50)) { entry ->
                     Surface(Modifier.fillMaxWidth().padding(vertical = 2.dp).clickable { onNavigate(entry.url); onDismiss() },
@@ -62,7 +73,11 @@ fun BrowserHistoryDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
         dismissButton = {
-            TextButton(onClick = { historyStore.clear(); onDismiss() }, colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.error)) {
+            TextButton(onClick = {
+                historyStore.clear()
+                entries = emptyList()   // 立即刷新列表，不再依赖关窗重开
+                cleared = true
+            }, colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.error)) {
                 Text("清空全部")
             }
         }

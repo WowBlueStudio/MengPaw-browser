@@ -151,15 +151,34 @@ internal class BrowserPlaywrightCommands(private val ctx: BrowserCommandContext)
             return ExecutionResult.fail("⚠️ 存储权限未授予（Agent 无法读取截图）。请在系统设置中授予「所有文件访问」后重试。", errorCode = ErrorCodes.ERR_PERMISSION_DENIED)
         }
         return try {
-            if (p.has("full")) {
-                val cap = JSONObject(b.screenshotFullSegments(BuiltinBrowserPlugin.screenshotMaxHeight()))
+            // v0.10.3: --view 显式截视口（手册/排障流程一直在教这个开关，实现里却没有，
+            // 传了会被当无值布尔 flag 静默忽略 → 诊断时误判「全页截图坏了」）
+            val wantView = p.has("view") && !p.has("full")
+            val maxH = p.int("max-height", BuiltinBrowserPlugin.screenshotMaxHeight())
+            if (wantView) {
+                // b.screenshot() 自身带落盘校验（缺失/空文件回 ok:false）
+                val view = JSONObject(b.screenshot())
+                if (!view.optBoolean("ok", false)) {
+                    ExecutionResult.fail("视口截图失败: ${view.optString("error")}", errorCode = ErrorCodes.ERR_INTERNAL)
+                } else {
+                    ExecutionResult.ok("## page.screenshot --view 完成\n" + view.toString())
+                }
+            } else if (p.has("full")) {
+                val cap = JSONObject(b.screenshotFullSegments(maxH))
                 if (!cap.optBoolean("ok", false)) {
                     ExecutionResult.fail("全页截图失败: ${cap.optString("error")}", errorCode = ErrorCodes.ERR_INTERNAL)
                 } else {
                     ExecutionResult.ok(cap.toString())
                 }
             } else {
-                ExecutionResult.ok(b.screenshot())
+                // v0.10.3: 原实现无条件 ExecutionResult.ok(b.screenshot()) —
+                // 截图 JSON 里 ok:false（WebView 已销毁/落盘失败）也被当成功回传。
+                val view = JSONObject(b.screenshot())
+                if (!view.optBoolean("ok", false)) {
+                    ExecutionResult.fail("视口截图失败: ${view.optString("error")}", errorCode = ErrorCodes.ERR_INTERNAL)
+                } else {
+                    ExecutionResult.ok(view.toString())
+                }
             }
         } catch (e: Exception) {
             ErrorCollector.report(e, "PageCommands.screenshot")

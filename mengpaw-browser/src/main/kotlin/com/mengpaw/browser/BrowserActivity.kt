@@ -32,6 +32,8 @@ class BrowserActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         DataPathsInitializer.initialize(this)
         KernelLog.setLogger(AndroidLogger())
+        // v0.10.3: 清理过期 PDF 预览缓存（旧实现每次预览都往 cacheDir 写且从不删除）
+        try { PdfUtil.cleanupStaleCache(this) } catch (_: Exception) { }
         // 9880 HTTP 桥已退役 (半自动武器决策 #7): Agent 控制统一走 am 桥 (RunCommandService,
         // signature 权限), 无 token/开放模式/HTTP server。
         val prefs = BrowserPrefs(this)
@@ -228,7 +230,8 @@ class BrowserActivity : ComponentActivity() {
         fun currentTabs(): List<TabState>
         fun currentActiveTabId(): Int
         fun switchTab(id: Int)
-        fun openTab(id: Int, url: String)
+        /** 打开/切换标签；返回 null=已受理，非 null=失败原因（v0.10.3: 不再无声失败） */
+        fun openTab(id: Int, url: String): String?
         fun closeTab(id: Int)
     }
 
@@ -237,6 +240,12 @@ class BrowserActivity : ComponentActivity() {
     internal var browserState: BrowserStateBridge? = null
 
     companion object {
+        /** 主线程执行（命令线程调用状态桥时必须切回主线程 — WebView/UI 只能在主线程碰）。 */
+        private fun onMain(block: () -> Unit) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) block()
+            else android.os.Handler(android.os.Looper.getMainLooper()).post(block)
+        }
+
         /** 标签页状态桥工厂 — BrowserApp (Compose) 注入 state 读写闭包。 */
         internal fun createStateBridge(
             tabs: () -> List<TabState>,
@@ -245,35 +254,59 @@ class BrowserActivity : ComponentActivity() {
             setActiveTabId: (Int) -> Unit,
             setIsColdStart: (Boolean) -> Unit,
             webViewMap: MutableMap<Int, WebView>,
-            maxTabs: Int
+            maxTabs: Int,
+            /** v0.10.3: WebView 尚未创建时把导航登记为待办（与地址栏同一通道） */
+            setPendingLoad: (com.mengpaw.browser.data.PendingLoad) -> Unit = {},
+            nextSeq: () -> Long = { 0L }
         ): BrowserStateBridge = object : BrowserStateBridge {
             override fun activeWebView(): WebView? = webViewMap[activeTabId()]
             override fun currentTabs(): List<TabState> = tabs()
             override fun currentActiveTabId(): Int = activeTabId()
-            override fun switchTab(id: Int) { if (tabs().any { it.id == id }) setActiveTabId(id) }
-            override fun openTab(id: Int, url: String) {
-                if (tabs().any { it.id == id }) {
-                    setTabs(tabs().map { if (it.id == id) it.copy(url = url) else it })
-                    setActiveTabId(id)
-                    webViewMap[id]?.loadUrl(url)
-                } else if (tabs().size < maxTabs) {
-                    // P2 fix: Agent 路径 (browser.mcp.invoke tab/new) 同样受 maxTabs 上限约束
-                    val newId = (tabs().maxOfOrNull { it.id } ?: -1) + 1
-                    setTabs(tabs() + TabState(id = newId, url = url))
-                    setActiveTabId(newId)
-                    setIsColdStart(false)
+            override fun switchTab(id: Int) {
+                if (tabs().none { it.id == id }) return
+                // v0.10.3: 命令线程 → 主线程（旧实现直接写 Compose/碰 WebView）
+                onMain { setActiveTabId(id) }
+            }
+            override fun openTab(id: Int, url: String): String? {
+                val current = tabs()
+                val existing = current.any { it.id == id }
+                if (!existing && current.size >= maxTabs) return "标签页已达上限 ($maxTabs)，请先关闭部分标签页"
+                onMain {
+                    val cur = tabs()
+                    if (cur.any { it.id == id }) {
+                        setTabs(cur.map { if (it.id == id) it.copy(url = url) else it })
+                        setActiveTabId(id)
+                        setIsColdStart(false)
+                        val wv = webViewMap[id]
+                        if (wv != null) {
+                            try { wv.loadUrl(url) } catch (_: Exception) {
+                                setPendingLoad(com.mengpaw.browser.data.PendingLoad(id, url, nextSeq()))
+                            }
+                        } else {
+                            setPendingLoad(com.mengpaw.browser.data.PendingLoad(id, url, nextSeq()))
+                        }
+                    } else {
+                        val newId = (cur.maxOfOrNull { it.id } ?: -1) + 1
+                        setTabs(cur + TabState(id = newId, url = url))
+                        setActiveTabId(newId)
+                        setIsColdStart(false)
+                        setPendingLoad(com.mengpaw.browser.data.PendingLoad(newId, url, nextSeq()))
+                    }
                 }
+                return null
             }
             override fun closeTab(id: Int) {
                 if (tabs().size <= 1) return  // 保持至少一个标签
-                val wv = webViewMap.remove(id)
-                if (wv != null) {
-                    // 先脱离视图树再 destroy (P1 fix — attached destroy 风险)
-                    try { (wv.parent as? android.view.ViewGroup)?.removeView(wv) } catch (_: Exception) {}
-                    try { wv.stopLoading(); wv.destroy() } catch (_: Exception) {}
+                onMain {
+                    val wv = webViewMap.remove(id)
+                    if (wv != null) {
+                        // 先脱离视图树再 destroy (P1 fix — attached destroy 风险)
+                        try { (wv.parent as? android.view.ViewGroup)?.removeView(wv) } catch (_: Exception) {}
+                        try { wv.stopLoading(); wv.destroy() } catch (_: Exception) {}
+                    }
+                    setTabs(tabs().filter { it.id != id })
+                    setActiveTabId(tabs().firstOrNull()?.id ?: 0)
                 }
-                setTabs(tabs().filter { it.id != id })
-                setActiveTabId(tabs().firstOrNull()?.id ?: 0)
             }
         }
     }
@@ -292,7 +325,7 @@ class BrowserActivity : ComponentActivity() {
                 }
             },
             tabSwitcher = { id -> browserState?.switchTab(id) },
-            tabOpener = { id, url -> browserState?.openTab(id, url) },
+            tabOpener = { id, url -> browserState?.openTab(id, url) ?: "浏览器未就绪（请先打开 MP 浏览器）" },
             tabCloser = { id -> browserState?.closeTab(id) }
         )
     }

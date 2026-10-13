@@ -1,7 +1,7 @@
 # MengPaw.Browser 开发文档
 
 > 独立 APK (Android 浏览器应用), 内置 Playwright 语义命令面, 供 AI Agent 半自动控制。
-> 文档版本: v0.10.2 · 2026-10-13 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
+> 文档版本: v0.10.3 · 2026-10-13 · 许可: AGPL-3.0-or-later OR LicenseRef-Commercial
 > 本文档分两部分: **第一部分**引导 Shell Agent 经 am 桥控制浏览器并开始操作;
 > **第二部分**面向开发者, 讲解目录结构与实现。
 > 配套文档: **MengPaw_Browser_skills.md**(Agent 完整操作手册: 命令面全表/
@@ -170,7 +170,7 @@ com.mengpaw.browser
 `BrowserPlaywrightCommands`。共 43 条(page.* 22 + browser.* 21)。
 
 - `BrowserPlaywrightCommands`: `page.*` 22 条 — 参数解析支持位置参数 +
-  `--flag` 值(`wait/max-height/grep/head/tail/timeout`)+ 布尔 flag(`-i` 等)
+  `--flag` 值(`wait/max-height/grep/head/tail/timeout`)+ 布尔 flag(`-i`/`--full`/`--view` 等)
 - `BrowserTabCommands`: `tabs` / `tab` / `tab.open` / `tab.close` / `tab.all`
 - `BrowserPageCommands`: `inject` / `diff` / `preload` / `wait` / `wait.nav` /
   `cookies` / `cookies.set` / `cookies.clear` / `dialog.accept` / `dialog.dismiss`
@@ -179,6 +179,13 @@ com.mengpaw.browser
 
 命令实现统一接收 `(List<String>, ExecutionContext) -> ExecutionResult`, 经
 `BrowserCommandContext` 访问 WebView 桥(`BrowserBridge`)/标签页状态/截图器。
+
+> **命令命名 (v0.10.3 定案)**: 注册键是短名 (`tabs`/`tab.open`/`cookies.set` …),
+> 而 Agent 侧命名是带前缀的 `browser.*`。解析统一走 `plugin/CommandNames.kt` 的
+> `resolveCommandKey` —— **两种形态都接受**, 手册/提示词继续教完整名字。
+> 修复前的双向死路: `browser.tabs` 过白名单但查不到注册键, `tabs` 直接被白名单拒绝
+> ⇒ 21 条 `browser.*` 命令对 Agent 完全不可达。`CommandSurfaceTest` 把「文档教的命令名」
+> 与「注册表实际命令名」钉死, 任何一侧漂移即红。
 
 ### 8. 调用通道实现 — am 桥(`RunCommandService`)
 

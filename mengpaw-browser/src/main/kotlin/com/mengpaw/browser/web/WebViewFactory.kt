@@ -81,23 +81,29 @@ private fun escapeHtml(s: String): String = buildString(s.length) {
     }
 }
 
-/** 网络错误码 → 中文提示 (onReceivedError 只有英文 net::ERR_* 描述, 用户看不出该做什么)。 */
+/**
+ * 网络错误码 → 中文提示 + **可执行的下一步**。
+ * v0.10.3: 旧文案只陈述原因（"网址可能拼错"），Agent/用户拿不到替代动作 →
+ * 补「换协议重试 / 换 DNS / 用系统浏览器验证 / 该站可能被网络屏蔽」等落点。
+ */
 private fun errorHint(desc: String): String = when {
     desc.contains("CLEARTEXT", ignoreCase = true) ->
-        "该站点是明文 http，被系统流量策略拦截"
+        "该站点是明文 http，被系统流量策略拦截。可改用 https:// 访问，或检查应用是否被限制了明文流量"
     desc.contains("NAME_NOT_RESOLVED", ignoreCase = true) ->
-        "域名解析失败：网址可能拼错，或当前网络 DNS 不可用"
+        "域名解析失败：网址可能拼错；请检查 WiFi/移动数据，或换用 IP 直连/更换 DNS"
     desc.contains("TIMED_OUT", ignoreCase = true) ->
-        "连接超时：站点无响应，或当前网络无法访问该站点"
+        "连接超时：站点无响应或当前网络访问不到。可改用 http:// 与 https:// 互试、稍后重试，或复制地址到系统浏览器验证"
     desc.contains("CONNECTION_REFUSED", ignoreCase = true) ->
-        "连接被拒绝：站点端口未开放"
+        "连接被拒绝：站点端口未开放。确认端口号，或换 http/https 再试"
     desc.contains("CONNECTION_RESET", ignoreCase = true) ||
         desc.contains("CONNECTION_CLOSED", ignoreCase = true) ->
-        "连接被重置：链路被中断（网络屏蔽或站点故障）"
+        "连接被重置：链路中断（网络屏蔽或站点故障）。可在系统浏览器中验证同一地址，或稍后重试"
     desc.contains("SSL", ignoreCase = true) || desc.contains("CERT", ignoreCase = true) ->
-        "证书校验失败：站点证书无效（本浏览器不允许绕过证书错误）"
+        "证书校验失败：站点证书无效（本浏览器不允许绕过证书错误）。确认域名正确，或改用 http:// 再试"
     desc.contains("UNKNOWN_URL_SCHEME", ignoreCase = true) ->
-        "不支持的地址协议"
+        "不支持的地址协议：请使用 http:// 或 https://"
+    desc.contains("INSUFFICIENT_RESOURCES", ignoreCase = true) ->
+        "内存不足：页面过大，尝试关闭其他标签页后重试"
     else -> ""
 }
 
@@ -284,10 +290,15 @@ fun createWebView(
             // (shouldOverrideUrlLoading 拦截时不会触发本回调, 不会重复拉取)
             if (url != null) {
                 if (isMarkdownUrl(url)) {
-                    view?.stopLoading(); onMarkdownDetected(url); return
+                    view?.stopLoading()
+                    // v0.10.3: 拦截分支必须收口加载态, 否则进度条永远在转
+                    updateTab(tab.id) { it.copy(isLoading = false, url = url) }
+                    onMarkdownDetected(url); return
                 }
                 if (isPdfUrl(url)) {
-                    view?.stopLoading(); onPdfDetected(url); return
+                    view?.stopLoading()
+                    updateTab(tab.id) { it.copy(isLoading = false, url = url) }
+                    onPdfDetected(url); return
                 }
             }
             url?.let { u -> updateTab(tab.id) { it.copy(url = u, isLoading = true) } }
