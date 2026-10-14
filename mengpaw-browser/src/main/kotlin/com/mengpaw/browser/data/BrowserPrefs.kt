@@ -25,6 +25,18 @@ class BrowserPrefs(ctx: Context) {
         get() = p.getBoolean("adblock_v2", false)
         set(v) = p.edit().putBoolean("adblock_v2", v).apply()
 
+    /**
+     * **安全模式**（累计修改 — 站点兼容性排障开关，默认关）。
+     *
+     * 打开后: 不注入任何脚本/样式（推广条隐藏 CSS、JS 错误钩子、`__mp` 桥），
+     * 且 WebView 用**原生默认视口设置**（不设 `useWideViewPort`/`loadWithOverviewMode`/`layoutAlgorithm`）、
+     * **不改写 UA**。用途: 在模拟器里 A/B 判定"站点渲染异常是不是我们这层造成的"。
+     * 模拟器可 root，直接改 `/data/data/<pkg>/shared_prefs/mp_browser.xml` 即可切换，无需重新出包。
+     */
+    var safeMode: Boolean
+        get() = p.getBoolean("safe_mode", false)
+        set(v) = p.edit().putBoolean("safe_mode", v).apply()
+
     /** Ordered list of enabled engine keys (comma-separated). */
     var engineKeys: List<String>
         get() = (p.getString("engines", "bing,google,baidu,duckduckgo") ?: "bing,google,baidu,duckduckgo").split(",").filter { it.isNotBlank() }

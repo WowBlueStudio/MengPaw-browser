@@ -203,6 +203,31 @@ try{for(var k=0;k<document.styleSheets.length;k++){var ss=document.styleSheets[k
  try{rr=ss.cssRules}catch(e){rules.push('CORS:'+(ss.href||'').split('/').pop());continue}
  if(rr)scan(rr,'')}}catch(e){rules.push('scanerr:'+e.message)}
 o.rules=rules.slice(0,8);
+// ── 第五轮: 解"规则在 CSSOM 里、选择器也命中、计算值却是 0px"的矛盾 ──
+// (a) 把所有 **真正命中该元素** 且声明了 min-height/height 的规则按级联顺序列出（含 !important）
+// (b) 列出样式表的 disabled 与 media，以及 <link> 的 media —— 样式表可能存在但不生效
+try{
+ var all=[];
+ function walk(list,prefix,disabled){
+  for(var n=0;n<list.length;n++){var r=list[n];
+   if(r.selectorText){var hit=false;try{hit=el?el.matches(r.selectorText):false}catch(e){}
+    if(hit&&(r.style.minHeight||r.style.height)){
+     all.push((disabled?'DISABLED|':'')+prefix+r.selectorText.substring(0,70)+
+      '|minH='+r.style.minHeight+'|h='+r.style.height+
+      '|impMin='+(r.style.getPropertyPriority('min-height')||'-'))}}
+   else if(r.cssRules){walk(r.cssRules,prefix+'@'+((r.conditionText||'').substring(0,24))+' ',disabled)}}
+ }
+ for(var m=0;m<document.styleSheets.length;m++){var st=document.styleSheets[m];var rs2=null;
+  var mm='';try{mm=(st.media&&st.media.mediaText)||''}catch(e){}
+  var dis=false;try{dis=!!st.disabled}catch(e){}
+  if(mm&&mm!=='all'&&mm!=='screen'){all.push('MEDIA('+mm+')|'+(st.href||'').split('/').pop())}
+  if(dis){all.push('DISABLED-SHEET|'+(st.href||'').split('/').pop())}
+  try{rs2=st.cssRules}catch(e){continue}
+  if(rs2)walk(rs2,'',dis)}
+ o.matched=all.slice(0,12)
+}catch(e){o.e8=''+e.message}
+try{o.linkMedia=[];var lk2=document.querySelectorAll('link[href*="theme-trek"]');
+ for(var q2=0;q2<lk2.length&&q2<8;q2++){o.linkMedia.push((lk2[q2].getAttribute('rel')||'?')+'/'+(lk2[q2].getAttribute('media')||'-')+'/'+(lk2[q2].getAttribute('href')||'').split('/').pop())}}catch(e){o.e9=''+e.message}
 return JSON.stringify(o)
 }catch(e){return 'ERR:'+e.message}})()
 """.trimIndent()

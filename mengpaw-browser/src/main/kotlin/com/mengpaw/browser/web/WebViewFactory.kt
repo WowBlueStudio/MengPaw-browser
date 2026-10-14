@@ -97,23 +97,28 @@ fun createWebView(
      */
     onNewWindow: (String) -> Unit = {}
 ): WebView = WebView(ctx).apply {
+    // 安全模式（排障用，默认关）: 关掉我们全部注入 + 用原生视口设置 + 不改写 UA，
+    // 用于在模拟器里 A/B 判定"站点渲染异常是否由我们这层造成"。
+    val safe = try { com.mengpaw.browser.data.BrowserPrefs(ctx).safeMode } catch (_: Exception) { false }
     settings.javaScriptEnabled = true
     settings.domStorageEnabled = true
     settings.databaseEnabled = true
-    settings.loadWithOverviewMode = true
-    settings.useWideViewPort = true
-    // 累计修改（社区/官方口径）: Chromium 文档给"像浏览器一样配置 WebView"的三件套是
-    // useWideViewPort(true) + loadWithOverviewMode(true) + layoutAlgorithm=TEXT_AUTOSIZING；
-    // 缺第三项时排版宽度按 AOSP 缺省 NARROW_COLUMNS 走，与 Chrome/Edge 的字号排版不一致。
-    // 注: 该项只影响排版/字号，**不影响 `vh` 高度**（100vh 矮条问题见 WebViewLoadTiming.kt）。
-    try { settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING } catch (_: Exception) { }
+    if (!safe) {
+        settings.loadWithOverviewMode = true
+        settings.useWideViewPort = true
+        // 累计修改（社区/官方口径）: Chromium 文档给"像浏览器一样配置 WebView"的三件套是
+        // useWideViewPort(true) + loadWithOverviewMode(true) + layoutAlgorithm=TEXT_AUTOSIZING；
+        // 缺第三项时排版宽度按 AOSP 缺省 NARROW_COLUMNS 走，与 Chrome/Edge 的字号排版不一致。
+        // 注: 该项只影响排版/字号，**不影响 `vh` 高度**（100vh 矮条问题见 WebViewLoadTiming.kt）。
+        try { settings.layoutAlgorithm = WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING } catch (_: Exception) { }
+    }
     settings.builtInZoomControls = true
     settings.displayZoomControls = false
     settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
     // Allow file:// access for local Markdown/HTML files
     settings.allowFileAccess = true
     // 累计修改: 平板请求桌面版页面, 手机请求移动版 (设备类别判定, 策略见 UserAgent.kt)
-    applyUserAgent(this, desktopSite)
+    if (!safe) applyUserAgent(this, desktopSite)
     // 累计修改（兼容性对齐）: 第三方 Cookie 改为**允许** —— Chromium/Edge 的默认行为。
     // 旧实现显式 false，比 Chrome/Edge 更严：依赖第三方 Cookie 的同意管理(CMP)/标签管理器/
     // 嵌入式登录会让站点局部 JS 初始化失败（分类菜单点不开、浮层弹窗不出现）。
@@ -293,8 +298,11 @@ fun createWebView(
                 }
             }
             url?.let { u -> updateTab(tab.id) { it.copy(url = u, isLoading = true) } }
+            // 站点自检挂载点兜底: 站点 loadNonCriticalCSS() 依赖 #criticalCSS,
+            // 缺失时后续 CSS 永不注入(实测 hero 的 display:block 因此没到) —— 尽早补齐。
+            evaluateJavascript(MP_CRITICAL_CSS_SHIM_JS, null)
             // 尽早注入 JS 错误钩子（onPageFinished 会再补一次，覆盖晚绑定错误）
-            evaluateJavascript(MP_ERROR_HOOK_JS, null)
+            if (!safe) evaluateJavascript(MP_ERROR_HOOK_JS, null)
         }
         override fun onPageFinished(view: WebView?, url: String?) {
             updateTab(tab.id) { it.copy(isLoading = false, title = view?.title ?: "", canGoBack = view?.canGoBack() ?: false, canGoForward = view?.canGoForward() ?: false) }
@@ -305,6 +313,7 @@ fun createWebView(
                 postDelayed({ try { logViewportMetrics("finished+1s") } catch (_: Exception) { } }, 1000)
                 // hero 高度规则审计（第三轮取证: 判断是 vh 不对还是规则没生效）
                 postDelayed({ try { logHeroCssAudit() } catch (_: Exception) { } }, 2000)
+                if (safe) return@let   // 安全模式: 不注入任何脚本/样式
                 // Hide app-banner elements
                 evaluateJavascript(HIDE_APP_BANNER_JS, null)
                 // 站点 JS 错误钩子（诊断用；幂等）

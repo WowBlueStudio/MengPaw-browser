@@ -55,6 +55,28 @@ internal val MP_ERROR_HOOK_JS = "(function(){if(window.__mpErrHook)return;window
     "window.addEventListener('unhandledrejection',function(e){try{console.error('[mp] unhandled rejection: '+" +
     "((e.reason&&e.reason.message)||String(e.reason)))}catch(x){}});})();"
 
+/**
+ * `#criticalCSS` 缺失兜底（累计修改 — 站点兼容性，模拟器实测定位）。
+ *
+ * 事故与证据: trekbikes.com 首页的整屏 hero（`.trek-marquee .fixed-overslider`）在
+ * Android WebView 里只有 195px 高、`getComputedStyle().minHeight = "0px"`，而探针证明
+ * **两条命中该元素的规则**（`min-height:60vh` 与 `@media((min-width:640px)){…calc(-60px + 90vh)}`）
+ * 都在已应用样式表里 —— 即 `min-height` 被当成**非替换 inline 盒**不适用（计算值回落 0），
+ * 也就是"给它 `display:block` 的那份布局 CSS 没到"。
+ *
+ * 站点侧机制: 其非关键 CSS 由 `loadNonCriticalCSS()` 注入，而该函数依赖
+ * `#criticalCSS` 元素存在（否则 `insertAdjacentElement` 抛错、后续样式永不注入）。
+ * 实测每次采样 `critical:false`（页面里没有该元素）⇒ 注入链从未走通。
+ *
+ * 本兜底**不写死任何站点样式**，只是把站点自己要求的挂载点补齐（幂等、纯 try/catch），
+ * 让站点自己的 CSS 注入链能继续；对不需要该元素的站点无副作用。
+ */
+internal val MP_CRITICAL_CSS_SHIM_JS = "(function(){try{" +
+    "if(document.getElementById('criticalCSS'))return;" +
+    "var s=document.createElement('style');s.id='criticalCSS';" +
+    "(document.head||document.documentElement).appendChild(s);" +
+    "}catch(e){}})();"
+
 /** HTML 特殊字符转义 — 错误页等拼接场景防注入 (恶意 URL/错误描述可携带 HTML/JS)。 */
 private fun escapeHtml(s: String): String = buildString(s.length) {
     for (ch in s) {
