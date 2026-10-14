@@ -33,9 +33,21 @@
 **当前最可信的现场矛盾**（未解）: `el.matches()` 证明两条规则都命中该元素
 （`min-height:60vh`、`@media((min-width:640px)){min-height:calc(-60px + 90vh)}`），
 样式表也未 disabled/无 media 限制，但 `getComputedStyle().minHeight === "0px"`、实际高 195px。
-Chromium 里这种组合最接近"该元素被视为**非替换 inline 盒**（`min-height` 不适用）"，
-即**给它 `display:block` 的布局 CSS 没到**。下一步: 从站点产物定位该 `display` 规则由哪份 CSS/何时注入
-（已派子代理分析 `_trek/` 产物），并参考开源 Android 浏览器项目的做法。
+
+**本轮又证伪的兜底**（均在模拟器实测无效，**已从代码撤回**，不留无证据的行为改动）:
+
+- `#criticalCSS` 挂载点兜底: 补上后 `critical:true`，hero 仍 195px；
+- `preload as=style → stylesheet` 换装兜底: 探针显示 5 份 CSS 本来就是 `stylesheet` 态（换装已发生），
+  强制换装后 `heroH` 仍 195px ⇒ **投递时机不是病因**。
+
+**站点侧硬事实**（子代理对 `_trek/` 产物实测 + headless Chromium 对照）: `index.html` 里
+`rel="stylesheet"` 计数为 **0**，5 份主题 CSS 全靠内联 `onload="this.rel='stylesheet'"` 换装，
+其 JS 无其它注入机制；`fixed-overslider` 是 `<div>`，`display:flex` 与两条 `min-height`
+写在**同一条规则**里；Chromium 里 `minHeight = 0px` 的语义是「**没有任何 min-height 声明生效**」
+（与 `display:inline` 无关，实测 inline 也会算出 60vh）。⇒ 仍需解释"规则已生效却算 0px"。
+
+下一步: 逐样式表打印 `href | ownerNode.rel | disabled | cssRules.length` 并把逻辑属性
+（`min-block-size`/`block-size`）也纳入审计；同时参考开源 Android 浏览器项目的做法。
 
 ## v0.10.5 (2026-10-14) — 站点兼容性攻坚：形态自适应 UA + 能力补齐 + 加载时机修复
 

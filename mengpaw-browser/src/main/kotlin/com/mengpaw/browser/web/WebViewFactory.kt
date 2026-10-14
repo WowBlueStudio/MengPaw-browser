@@ -298,9 +298,6 @@ fun createWebView(
                 }
             }
             url?.let { u -> updateTab(tab.id) { it.copy(url = u, isLoading = true) } }
-            // 站点自检挂载点兜底: 站点 loadNonCriticalCSS() 依赖 #criticalCSS,
-            // 缺失时后续 CSS 永不注入(实测 hero 的 display:block 因此没到) —— 尽早补齐。
-            evaluateJavascript(MP_CRITICAL_CSS_SHIM_JS, null)
             // 尽早注入 JS 错误钩子（onPageFinished 会再补一次，覆盖晚绑定错误）
             if (!safe) evaluateJavascript(MP_ERROR_HOOK_JS, null)
         }
