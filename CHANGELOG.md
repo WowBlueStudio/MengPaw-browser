@@ -5,7 +5,37 @@
 
 ## 未发布 (Unreleased)
 
-> 暂无累计修改 —— 下一版发布前，新改动在这里累积。
+> v0.10.5 之后的累计修改（**未发版**）。当前重点: 继续追查 trekbikes.com 两项未定位问题。
+
+### 新增 — 排障与诊断（v0.10.5 之后）
+
+- **`safe_mode` 排障开关**（`data/BrowserPrefs.kt`，默认关）: 打开后不注入任何脚本/样式、
+  WebView 用原生视口设置、不改写 UA —— 用于判定"站点渲染异常是否由我们这层造成"。
+  模拟器可 root，直接改 `/data/data/<pkg>/shared_prefs/mp_browser.xml` 即可切换，无需重新出包。
+- **探针 v5**（`web/WebViewLoadTiming.kt`）: 除原有视口/hero/导航采样外，新增
+  ①用 `el.matches()` 枚举**所有真正命中该元素**且声明 `min-height/height` 的规则（含 `!important`），
+  ②样式表 `disabled`/`media` 与 `<link media>` 审计。正是它给出了"规则命中却算 0px"的关键矛盾。
+- **`#criticalCSS` 挂载点兜底**（`web/WebErrorPage.kt` 的 `MP_CRITICAL_CSS_SHIM_JS`，幂等）:
+  站点 `loadNonCriticalCSS()` 依赖该元素，缺失会抛错导致后续 CSS 永不注入。**实测补上后 `critical:true`
+  但 hero 仍 195px ⇒ 该假设已证伪**；兜底保留（通用、无害、修的是站点自身的挂载点假设）。
+
+### 已知问题（继续更新）— trekbikes.com 整屏 hero 窄条 / 顶栏菜单点不开
+
+在 v0.10.5 已排除项之外，**本轮又排除**（全部为模拟器实测，与平板同规格 AVD 2880×1840@306）:
+
+| 假设 | 实测结论 |
+|---|---|
+| 我们自己的注入脚本 / 视口设置 | **排除**：`safe_mode=true`（出厂级配置）渲染与基线完全一致（`heroH=195, minHeight=0px`） |
+| WebView 引擎版本 | **排除**：WebView **124 / 131 / 133** 三个版本结果完全相同 |
+| cookie 同意状态 | **排除**：点掉站点 CMP（Accept all）后不变 |
+| 站点 `#criticalCSS` 缺失致 CSS 注入链中断 | **证伪**：补上挂载点（`critical:true`）后不变 |
+
+**当前最可信的现场矛盾**（未解）: `el.matches()` 证明两条规则都命中该元素
+（`min-height:60vh`、`@media((min-width:640px)){min-height:calc(-60px + 90vh)}`），
+样式表也未 disabled/无 media 限制，但 `getComputedStyle().minHeight === "0px"`、实际高 195px。
+Chromium 里这种组合最接近"该元素被视为**非替换 inline 盒**（`min-height` 不适用）"，
+即**给它 `display:block` 的布局 CSS 没到**。下一步: 从站点产物定位该 `display` 规则由哪份 CSS/何时注入
+（已派子代理分析 `_trek/` 产物），并参考开源 Android 浏览器项目的做法。
 
 ## v0.10.5 (2026-10-14) — 站点兼容性攻坚：形态自适应 UA + 能力补齐 + 加载时机修复
 
