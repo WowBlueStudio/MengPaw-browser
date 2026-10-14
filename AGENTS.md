@@ -32,6 +32,13 @@
 - 双远端推送: Gitee 先行; GitHub 若报 `Connection was reset` / 连不上, 按 45s 间隔重试 5~8 次,
   仍失败再走 SSH-over-443 兜底(临时密钥登记后**用完即删**)
 - 双平台 Release 必须**同批创建**并附 `mengpaw-browser-v<ver>-release.apk`(缺一不可)
+- **发 Release 的凭据（本机）**:
+  - GitHub: 已登录的 `gh` CLI（账号 `XMeng5257`），`gh release create <tag> <apk> -F <notes>`
+  - Gitee: 令牌在**用户级环境变量 `GITEE_TOKEN`**（32 位）——当前会话进程**通常不继承**它，
+    必须显式读取 `[Environment]::GetEnvironmentVariable("GITEE_TOKEN","User")`（命令里不要回显令牌）
+  - Gitee 建 Release: `POST https://gitee.com/api/v5/repos/{owner}/{repo}/releases`（`access_token` 放 form 可用）
+  - Gitee 传附件: `POST .../releases/{id}/attach_files` —— **`access_token` 必须放 query**，
+    放 form 会 `401 Unauthorized`（已实测）
 
 ## 4. 红线
 
