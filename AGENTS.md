@@ -46,6 +46,18 @@
 - 禁止 `!!`; 文件 IO 必须 try/catch
 - 未经用户明确指令, 不发版、不打 tag、不推送远端
 - 真机自测由用户完成, Agent 不遥控真机; 未验证项必须在 CHANGELOG 显式标注
+- **网页测试一律在模拟器里做（用户定案 2026-10-14）**: 任何"站点在某浏览器里渲染/交互如何"的验证
+  （截图、探针、点击、滚动、A/B 配置），都在本机模拟器完成，**不要去折腾用户的平板**；
+  平板只用于最终交付（安装发行包）。
+  - 现成环境: AVD **`MpTablet`**（2880×1840、density 306，与用户平板同规格）+
+    系统镜像 `system-images;android-35;google_apis;x86_64`；`adb -s emulator-5554`；
+    headless 启动 `emulator -avd MpTablet -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect -port 5554`
+  - 打开网址用 intent（App 注册了 VIEW http/https）:
+    `adb -s emulator-5554 shell am start -n com.mengpaw.browser/.BrowserActivity -a android.intent.action.VIEW -d "<url>"`
+  - 截图 `adb -s emulator-5554 exec-out screencap -p > x.png`；点击/滑动用 `input tap|swipe`
+  - 对照浏览器（Chrome）注意它会卡在 `TabbedModeFirstRunActivity` 首次引导，需要先跳过引导或用
+    `adb root` + Chromium command-line 关掉 FRE，不能直接拿首启页当对照
+  - 站点产物抓取放 `_trek/`，模拟器产物放 `_emu/`（均已在 `.gitignore`，**不要入库**）
 
 ## 5. 工作方式 (**用户定案 2026-10-14 — 开工即按此执行**)
 
