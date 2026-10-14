@@ -33,8 +33,11 @@ class UserAgentTest {
     @Test
     fun 手机保持系统默认移动UA() {
         val ua = userAgentFor(desktopSite = false, systemDefault = systemDefault, engineVersion = "120.0.6099.230")
-        assertEquals("手机不应改写 UA", systemDefault, ua)
-        assertTrue("系统默认 UA 带 Mobile 标记: $ua", ua.contains("Mobile"))
+        assertTrue("手机仍应是移动版 UA", ua.contains("Mobile"))
+        // 累计修改: 手机模式清洗 `; wv` 与 `Build/...`（开源浏览器共识: 保留会被站点判成内嵌 WebView）
+        assertFalse("不应保留 wv 标记: $ua", ua.contains("wv"))
+        assertFalse("不应保留 Build/ 段: $ua", ua.contains("Build/"))
+        assertTrue("其余字段保持系统默认: $ua", ua.startsWith("Mozilla/5.0 (Linux; Android"))
     }
 
     @Test

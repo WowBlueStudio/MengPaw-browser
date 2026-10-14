@@ -49,6 +49,16 @@
 下一步: 逐样式表打印 `href | ownerNode.rel | disabled | cssRules.length` 并把逻辑属性
 （`min-block-size`/`block-size`）也纳入审计；同时参考开源 Android 浏览器项目的做法。
 
+### 参考开源 Android 浏览器项目得到的结论（子代理调研，含官方依据）
+
+| 结论 | 依据 | 我们怎么做 |
+|---|---|---|
+| **只改 `userAgentString` 时 WebView 只生成低熵 Client Hints**，`Sec-CH-UA-Platform` 仍报 Android，与 Windows UA 自相矛盾 | androidx [`WebSettingsCompat.setUserAgentMetadata` 官方 javadoc](https://github.com/androidx/androidx/blob/androidx-main/webkit/webkit/src/main/java/androidx/webkit/WebSettingsCompat.java#L692-L752)；Cromite 专门维护 `Client-hints-overrides.patch` | **已尝试并回退**：本机 WebView 上 `UserAgentMetadata.Builder.build()` 抛 *"Brand name, major version and full version should not be null or blank."*，未生效 ⇒ 记入待办（需按 androidx 版本校验规则修正后重试） |
+| 手机模式应清洗 UA 里的 `; wv` 与 `Build/...`（否则被站点判成内嵌 WebView 而降级/拒绝登录） | Fulguris 注释原文 + SmartCookieWeb `replace("; wv","")` + Privacy Browser 内置无 `wv` UA（三家实证） | **已实现**：`mobileUserAgent()` 清洗，`UserAgentTest` 守护 |
+| 不要把 `layoutAlgorithm = TEXT_AUTOSIZING` 当默认（四个 WebView 系开源浏览器无一如此） | Fulguris / Lightning / SmartCookieWeb / Privacy Browser | 待 A/B（当前仍常开） |
+| 用 `webview-command-line` 做 Blink feature 二分 | Chromium [commandline-flags.md](https://chromium.googlesource.com/chromium/src/+/main/android_webview/docs/commandline-flags.md)（我们的 AVD 是 userdebug，可用） | 待做：判定"引擎特性差异" |
+| 仍未验证的假设: `@media (hover:hover)/(pointer:fine)` 分支 | 开源项目均未处理；Android WebView 恒为 `hover:none;pointer:coarse`，桌面 Edge 不是 | 待先 grep 站点 CSS 的 `hover/pointer` 查询再定 |
+
 ## v0.10.5 (2026-10-14) — 站点兼容性攻坚：形态自适应 UA + 能力补齐 + 加载时机修复
 
 > 起因: 用户报障 trekbikes.com「顶栏分类菜单点不开 / 整屏首屏挤成窄条 / 浮层弹窗全部没加载」。

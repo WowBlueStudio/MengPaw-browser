@@ -46,4 +46,18 @@ internal fun desktopUserAgent(engineVersion: String?): String =
  * 不能读 `settings.userAgentString` —— 后者一旦被本策略改成桌面 UA，再读就成了桌面 UA。
  */
 internal fun userAgentFor(desktopSite: Boolean, systemDefault: String, engineVersion: String?): String =
-    if (desktopSite) desktopUserAgent(engineVersion) else systemDefault
+    if (desktopSite) desktopUserAgent(engineVersion) else mobileUserAgent(systemDefault)
+
+/**
+ * 手机模式 UA 清洗（累计修改 — 参考开源 Android 浏览器共识）:
+ * 系统默认 UA 里的 **`; wv`**（WebView 标记）与 **`Build/...`** 会让站点/登录风控把请求
+ * 判成"App 内嵌 WebView"而降级或直接拒绝（Fulguris 注释原文:
+ * *"WebSettings default identifies us as WebView and as WebView Google is preventing us to login"*；
+ * SmartCookieWeb 在 `onPageStarted` 里 `replace("; wv","")`；Privacy Browser 直接内置一条无 `wv` 的
+ * Chrome 移动 UA）。这里做同样的清洗，其余字段保持系统默认（不虚构设备信息）。
+ */
+internal fun mobileUserAgent(systemDefault: String): String =
+    systemDefault
+        .replace(Regex(" Build/[^;)]+"), "")
+        .replace(Regex(";\\s*wv\\b"), "")
+        .replace(Regex("\\s{2,}"), " ")
